@@ -58,6 +58,7 @@ interface ReviewRecord {
 
 interface PetProgress {
   vocabulary: VocabularyChoices;
+  appliedVocabulary: VocabularyChoices;
   savedWords: PetWord[];
   activeIndex: number;
   ratings: Record<number, Rating>;
@@ -79,6 +80,7 @@ const CAMBRIDGE_LISTENING_PAGE = "https://www.cambridgeenglish.org/exams-and-tes
 
 const EMPTY_PROGRESS: PetProgress = {
   vocabulary: {},
+  appliedVocabulary: {},
   savedWords: [],
   activeIndex: 0,
   ratings: {},
@@ -113,6 +115,7 @@ function loadProgress(username: string): PetProgress {
     const parsed = JSON.parse(raw) as Partial<PetProgress>;
     return {
       savedWords: readSavedWords(parsed.savedWords),
+      appliedVocabulary: parsed.appliedVocabulary ?? parsed.vocabulary ?? Object.fromEntries(Object.entries(parsed.ratings ?? {}).map(([id, rating]) => [id, rating === "known" ? "known" : "unknown"])),
       vocabulary: parsed.vocabulary ?? Object.fromEntries(Object.entries(parsed.ratings ?? {}).map(([id, rating]) => [id, rating === "known" ? "known" : "unknown"])),
       activeIndex: Math.max(0, Math.min(PET_STUDY_WORDS.length - 1, parsed.activeIndex ?? 0)),
       ratings: parsed.ratings ?? {},
@@ -174,7 +177,7 @@ export function PetApp(): JSX.Element {
   const [practiceWord, setPracticeWord] = useState<PetWord | null>(null);
   const currentUsername = currentUser?.username ?? null;
   const wordPool = useMemo(() => studyPool(progress.savedWords), [progress.savedWords]);
-  const schedule = useMemo(() => ensureSchedule(progress.schedule, progress.ratings, today, progress.vocabulary, wordPool), [progress.schedule, progress.ratings, progress.vocabulary, today, wordPool]);
+  const schedule = useMemo(() => ensureSchedule(progress.schedule, progress.ratings, today, progress.appliedVocabulary, wordPool), [progress.schedule, progress.ratings, progress.appliedVocabulary, today, wordPool]);
   const activeDay = currentStudyDay(schedule, today).day;
   const studiedToday = studiedCount(activeDay);
 
@@ -241,7 +244,7 @@ export function PetApp(): JSX.Element {
           : 1
         : previous.streak;
 
-      let nextSchedule = ensureSchedule(previous.schedule, previous.ratings, today, previous.vocabulary, studyPool(previous.savedWords));
+      let nextSchedule = ensureSchedule(previous.schedule, previous.ratings, today, previous.appliedVocabulary, studyPool(previous.savedWords));
       if (scheduled) {
         const { cycle, day, dayIndex } = currentStudyDay(nextSchedule, today);
         if (!day.wordIds.includes(word.id)) return previous;
@@ -265,19 +268,32 @@ export function PetApp(): JSX.Element {
 
   const updateSchedule = useCallback((update: (schedule: StudySchedule) => StudySchedule) => {
     if (progressOwnerRef.current !== currentUsername) return;
-    setProgress((previous) => ({ ...previous, schedule: update(ensureSchedule(previous.schedule, previous.ratings, localDateKey(), previous.vocabulary, studyPool(previous.savedWords))) }));
+    setProgress((previous) => ({ ...previous, schedule: update(ensureSchedule(previous.schedule, previous.ratings, localDateKey(), previous.appliedVocabulary, studyPool(previous.savedWords))) }));
   }, [currentUsername]);
 
   function markVocabulary(word: PetWord, status: VocabularyStatus): void {
     setProgress(previous => {
-      const ratings = { ...previous.ratings };
-      // Restoring a previously studied word makes it eligible as a new task again.
-      if (status === "unknown") delete ratings[word.id];
       const vocabulary = { ...previous.vocabulary, [word.id]: status };
       const savedWords = word.id >= 1000 && !previous.savedWords.some(item => item.id === word.id) ? [...previous.savedWords, word] : previous.savedWords;
-      return { ...previous, ratings, vocabulary, savedWords, schedule: ensureSchedule(previous.schedule, ratings, localDateKey(), vocabulary, studyPool(savedWords)) };
+      return { ...previous, vocabulary, savedWords };
     });
-    setNotice(status === "known" ? "已移入认识列表" : "已加入不认识队列，将按每日名额安排");
+    setNotice(status === "known" ? "已移入认识列表" : "已标记不认识，点击“增加”更新学习计划");
+  }
+
+  function addVocabularyToStudy(): void {
+    setProgress(previous => {
+      const ratings = { ...previous.ratings };
+      for (const [id, status] of Object.entries(previous.vocabulary)) {
+        const hasStudyRecord = previous.schedule?.cycles.some(cycle => cycle.days.some(day => day.ratings[Number(id)]));
+        if (status === "unknown" && (previous.appliedVocabulary[Number(id)] !== "unknown" || !hasStudyRecord)) delete ratings[Number(id)];
+      }
+      const appliedVocabulary = { ...previous.vocabulary };
+      return { ...previous, ratings, appliedVocabulary, schedule: ensureSchedule(previous.schedule, ratings, localDateKey(), appliedVocabulary, studyPool(previous.savedWords)) };
+    });
+    setToday(localDateKey());
+    setPracticeWord(null);
+    setTab("study");
+    setNotice("学习计划已更新：按每日名额安排，已完成的任务保留");
   }
 
   function openWord(word: PetWord): void {
@@ -331,7 +347,7 @@ export function PetApp(): JSX.Element {
             onPracticeWord={setPracticeWord}
           />
         )}
-        {tab === "library" && <LibraryView ratings={progress.ratings} vocabulary={progress.vocabulary} onMark={markVocabulary} onOpenWord={openWord} />}
+        {tab === "library" && <LibraryView ratings={progress.ratings} vocabulary={progress.vocabulary} onAdd={addVocabularyToStudy} unknownCount={wordPool.filter(word => progress.vocabulary[word.id] === "unknown").length} onMark={markVocabulary} onOpenWord={openWord} />}
         {tab === "reading" && <ReadingView username={currentUser.username} onOpenWord={openWord} />}
         {tab === "wrong" && <WrongView wordPool={wordPool} ratings={progress.ratings} onOpenWord={openWord} />}
         {tab === "profile" && <ProfileView user={currentUser} progress={progress} onRestore={setProgress} onLogout={handleLogout} />}
@@ -426,7 +442,7 @@ function LoginView({ onLogin }: { onLogin: (user: PetUser) => void }): JSX.Eleme
   );
 }
 
-function LibraryView({ ratings, vocabulary, onMark, onOpenWord }: { ratings: Record<number, Rating>; vocabulary: VocabularyChoices; onMark: (word: PetWord, status: VocabularyStatus) => void; onOpenWord: (word: PetWord) => void }): JSX.Element {
+function LibraryView({ ratings, vocabulary, onAdd, unknownCount, onMark, onOpenWord }: { onAdd: () => void; unknownCount: number; ratings: Record<number, Rating>; vocabulary: VocabularyChoices; onMark: (word: PetWord, status: VocabularyStatus) => void; onOpenWord: (word: PetWord) => void }): JSX.Element {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | VocabularyStatus>("all");
   const [visibleCount, setVisibleCount] = useState(100);
@@ -470,7 +486,7 @@ function LibraryView({ ratings, vocabulary, onMark, onOpenWord }: { ratings: Rec
       <div className="pet-vocabulary-filters" role="group" aria-label="单词掌握状态">
         {(["all", "known", "unknown"] as const).map(value => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === "all" ? "全部" : value === "known" ? "认识" : "不认识"}<strong>{value === "all" ? currentWords.length : currentWords.filter(word => vocabulary[word.id] === value).length}</strong></button>)}
       </div>
-      <p className="pet-library-note">先标记“不认识”，才会进入每日新词计划。认识的词可随时恢复；当天已完成的任务保留。</p>
+      <div className="pet-add-vocabulary"><div><strong>待安排词库：{unknownCount} 个不认识的单词</strong><p>标记完成后点击“增加”，将两个词库中的不认识单词更新到学习计划。按每日名额分配，已完成的任务保留。</p></div><button type="button" onClick={onAdd}>增加</button></div>
       <div className="pet-library-summary"><strong>{lexicon === "curated" ? PET_WORDS.length : B1_WORD_COUNT}</strong><span>当前词库词量</span><small>{lexicon === "curated" ? "标记后进入每日计划" : "标记后进入每日计划"}</small></div>
       <label className="pet-search"><Search aria-hidden="true" /><span className="sr-only">搜索单词</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索英文或中文释义" /></label>
       {loading ? <div className="pet-loading"><LoaderCircle aria-hidden="true" />正在加载 2354 个词条…</div> : null}
@@ -484,7 +500,7 @@ function LibraryView({ ratings, vocabulary, onMark, onOpenWord }: { ratings: Rec
               <span><strong>{word.word}</strong><small>{word.ipa} · {word.category}</small></span>
               <span>{word.partOfSpeech} {word.meaning}</span>
               <ChevronRight aria-hidden="true" />
-            </button><div className="pet-vocabulary-actions">{vocabulary[word.id] === "known" ? <button type="button" onClick={() => onMark(word, "unknown")} aria-label={`恢复 ${word.word}`}>恢复</button> : <><button type="button" onClick={() => onMark(word, "known")} aria-label={`认识 ${word.word}`}>认识</button><button type="button" disabled={vocabulary[word.id] === "unknown"} onClick={() => onMark(word, "unknown")} aria-label={`不认识 ${word.word}`}>{vocabulary[word.id] === "unknown" ? "已加入" : "不认识"}</button></>}</div></div>
+            </button><div className="pet-vocabulary-actions">{vocabulary[word.id] === "known" ? <button type="button" onClick={() => onMark(word, "unknown")} aria-label={`恢复 ${word.word}`}>恢复</button> : <><button type="button" onClick={() => onMark(word, "known")} aria-label={`认识 ${word.word}`}>认识</button><button type="button" disabled={vocabulary[word.id] === "unknown"} onClick={() => onMark(word, "unknown")} aria-label={`不认识 ${word.word}`}>{vocabulary[word.id] === "unknown" ? "已标记" : "不认识"}</button></>}</div></div>
           );
         })}
       </div>
@@ -911,7 +927,7 @@ function ProfileView({ user, progress, onRestore, onLogout }: { user: PetUser; p
       try {
         const next = JSON.parse(String(reader.result)) as PetProgress;
         if (!next.ratings || !Array.isArray(next.reviews)) throw new Error("invalid");
-        onRestore({ ...EMPTY_PROGRESS, ...next, savedWords: readSavedWords(next.savedWords), vocabulary: next.vocabulary ?? {}, schedule: readSchedule(next.schedule, studyPool(readSavedWords(next.savedWords))) });
+        onRestore({ ...EMPTY_PROGRESS, ...next, savedWords: readSavedWords(next.savedWords), vocabulary: next.vocabulary ?? {}, appliedVocabulary: next.appliedVocabulary ?? next.vocabulary ?? {}, schedule: readSchedule(next.schedule, studyPool(readSavedWords(next.savedWords))) });
       } catch {
         window.alert("备份文件无法识别，请选择本应用导出的 JSON 文件。");
       }

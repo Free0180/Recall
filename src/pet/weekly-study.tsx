@@ -76,7 +76,7 @@ export function WeeklyStudy({ wordPool, username, today, schedule, onUpdate, onR
         {practiceWord ? <div className="pet-free-practice"><span>自由练习 · 不计入当天任务</span><button type="button" onClick={() => onPracticeWord(null)}>返回今日计划</button></div> : null}
         {word && (practiceWord || !complete) ? <WordStudyCard word={word} index={practiceWord ? wordPool.findIndex((item) => item.id === word.id) : cursor % words.length} total={practiceWord ? wordPool.length : words.length} onMove={move} onRate={rate} />
           : <section className="pet-daily-complete"><Check aria-hidden="true" /><h1>{complete ? "今日单词已完成" : reviewDay ? "今天没有待复习词" : "今天没有新词任务"}</h1>
-            <p>{complete ? "接下来进行听写，在文章里巩固今天的单词。" : reviewDay ? "复习只安排本周期前 5 天实际学过、标为“不认识”或“有点熟”的词。" : "请先到词库把需要学习的词标为“不认识”，系统会按每日名额安排。今天已完成后加入的词安排在后续学习日。"}</p>
+            <p>{complete ? "接下来进行听写，在文章里巩固今天的单词。" : reviewDay ? "复习只安排本周期前 5 天实际学过、标为“不认识”或“有点熟”的词。" : "请先到词库把需要学习的词标为“不认识”，再点击“增加”更新学习计划。今天已完成后加入的词安排在后续学习日。"}</p>
           </section>}
         <section className="pet-daily-module" aria-labelledby="daily-dictation-title">
           <div className="pet-daily-module-heading"><Headphones aria-hidden="true" /><h2 id="daily-dictation-title">每日听写</h2><span>{dictationCount(day)} / {words.length}</span></div>

@@ -11,6 +11,11 @@ test("core and expanded queues support marking, restoration, daily study and acc
   await page.getByRole("button", { name: "词库", exact: true }).click();
   await page.getByRole("button", { name: "不认识 ability", exact: true }).click();
   await page.getByRole("button", { name: "认识 achieve", exact: true }).click();
+  await page.getByRole("button", { name: "学习", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "今天没有新词任务" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "今天没有新词任务" })).toBeVisible();
+  await page.getByRole("button", { name: "词库", exact: true }).click();
   const filters = page.getByRole("group", { name: "单词掌握状态" });
   await filters.getByRole("button", { name: /^认识/ }).click();
   await expect(page.locator(".pet-vocabulary-row")).toHaveCount(1);
@@ -30,6 +35,7 @@ test("core and expanded queues support marking, restoration, daily study and acc
   await expect(page.getByRole("button", { name: "认识 abandon", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: path.join(tmpdir(), "pet-vocabulary-mobile.png"), fullPage: true });
+  await page.getByRole("button", { name: "增加", exact: true }).click();
   await page.reload();
   await expect(page.getByRole("heading", { name: "achieve", exact: true })).toBeVisible();
   await page.getByRole("button", { name: /^认识/ }).click();

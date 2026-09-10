@@ -22,7 +22,7 @@ async function login(page: Page, username = "RUN1"): Promise<void> {
   if (username === "RUN1") {
     await page.getByRole("button", { name: "词库", exact: true }).click();
     for (const word of ["ability", "achieve"]) await page.getByRole("button", { name: `不认识 ${word}`, exact: true }).click();
-    await page.getByRole("button", { name: "学习", exact: true }).click();
+    await page.getByRole("button", { name: "增加", exact: true }).click();
   }
 }
 

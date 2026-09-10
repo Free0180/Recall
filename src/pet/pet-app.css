@@ -2597,3 +2597,8 @@
 .pet-vocabulary-actions button { border: 1px solid #cce1fa; border-radius: 9px; background: #f4f9ff; color: #0874ed; padding: 9px 12px; cursor: pointer; }
 .pet-vocabulary-actions button:disabled { color: #71869d; cursor: default; }
 @media (max-width: 650px) { .pet-vocabulary-row { align-items: stretch; flex-direction: column; gap: 10px; } .pet-vocabulary-open { grid-template-columns: 10px 1fr 20px; } .pet-vocabulary-open > span:nth-child(3) { grid-column: 2; grid-row: 2; } .pet-vocabulary-open > svg { grid-column: 3; grid-row: 1; } .pet-vocabulary-actions { justify-content: flex-end; } }
+
+.pet-add-vocabulary { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 0; padding: 18px; background: #f0f7ff; border-radius: 14px; }
+.pet-add-vocabulary p { margin: 6px 0 0; color: var(--pet-muted); font-size: 13px; line-height: 1.7; }
+.pet-add-vocabulary > button { flex-shrink: 0; padding: 12px 26px; border: 0; border-radius: 10px; color: white; background: #1479e8; cursor: pointer; font-weight: 700; }
+@media (max-width: 650px) { .pet-add-vocabulary { align-items: stretch; flex-direction: column; } }
