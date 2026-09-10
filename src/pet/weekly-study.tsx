@@ -64,7 +64,7 @@ export function WeeklyStudy({ wordPool, username, today, schedule, onUpdate, onR
 
   return <div className="pet-weekly-study">
     <section className="pet-cycle-banner" aria-label="七天学习周期">
-      <div><span>第 {cycleNumber} 周期 · {today}</span><h2>第 {dayIndex + 1} 天 · {reviewDay ? "巩固复习" : "学习新词"}</h2><p>前 5 天学新词 · 后 2 天复习薄弱词 · 每天学完再听写</p></div>
+      <div><span>第 {cycleNumber} 周期 · {today}</span><h2>第 {dayIndex + 1} 天 · {reviewDay ? "巩固复习" : "学习新词"}</h2><p>前 5 天学新词 · 后 2 天复习本期与往期薄弱词</p></div>
       <ol className="pet-cycle-days">
         {cycle.days.map((entry, index) => <li key={index} aria-current={index === dayIndex ? "step" : undefined} className={`${index === dayIndex ? "is-current" : ""} ${wordsComplete(entry) ? "is-complete" : ""}`}>
           <span>第 {index + 1} 天</span><strong>{index < 5 ? "新词" : "复习"}</strong><small>{index >= 5 && !cycle.reviewPlanned ? "待定" : `${entry.wordIds.length} 词`}</small>
@@ -76,7 +76,7 @@ export function WeeklyStudy({ wordPool, username, today, schedule, onUpdate, onR
         {practiceWord ? <div className="pet-free-practice"><span>自由练习 · 不计入当天任务</span><button type="button" onClick={() => onPracticeWord(null)}>返回今日计划</button></div> : null}
         {word && (practiceWord || !complete) ? <WordStudyCard word={word} index={practiceWord ? wordPool.findIndex((item) => item.id === word.id) : cursor % words.length} total={practiceWord ? wordPool.length : words.length} onMove={move} onRate={rate} />
           : <section className="pet-daily-complete"><Check aria-hidden="true" /><h1>{complete ? "今日单词已完成" : reviewDay ? "今天没有待复习词" : "今天没有新词任务"}</h1>
-            <p>{complete ? "接下来进行听写，在文章里巩固今天的单词。" : reviewDay ? "复习只安排本周期前 5 天实际学过、标为“不认识”或“有点熟”的词。" : "请先到词库把需要学习的词标为“不认识”，再点击“增加”更新学习计划。今天已完成后加入的词安排在后续学习日。"}</p>
+            <p>{complete ? "接下来进行听写，在文章里巩固今天的单词。" : reviewDay ? "复习合并本周期和往期已学过、仍不认识或有点熟的词；认识后退出后续复习计划。" : "请先到词库把需要学习的词标为“不认识”，再点击“增加”更新学习计划。今天已完成后加入的词安排在后续学习日。"}</p>
           </section>}
         <section className="pet-daily-module" aria-labelledby="daily-dictation-title">
           <div className="pet-daily-module-heading"><Headphones aria-hidden="true" /><h2 id="daily-dictation-title">每日听写</h2><span>{dictationCount(day)} / {words.length}</span></div>
@@ -103,7 +103,7 @@ export function WeeklyStudy({ wordPool, username, today, schedule, onUpdate, onR
           <DailyPlanRow label="单词听写" done={dictationCount(day)} total={words.length} />
           <DailyPlanRow label="PET 文章" done={day.article ? 1 : 0} total={words.length ? 1 : 0} />
           <p>{reviewDay ? `两天分批复习：第 6 天 ${cycle.days[5].wordIds.length} 词，第 7 天 ${cycle.days[6].wordIds.length} 词。` : `每天计划 ${cycle.dailyTarget} 个新词，不足时按实际剩余数量安排。`}</p>
-          <p>按本机日期切换。未完成的新词不会算作已学；未学完的日期不会生成文章。</p>
+          <p>按本机日期切换。薄弱词自动结转到后续周期的第 6、7 天，无需再点“增加”。未学完的日期不会生成文章。</p>
         </section>
         <section className="pet-plan"><h2>周期设置</h2><label className="pet-target-setting">下周期每日新词数<select value={schedule.dailyTarget} onChange={(event) => {
           const dailyTarget = Number(event.target.value);

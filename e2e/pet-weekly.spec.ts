@@ -9,6 +9,33 @@ import { PET_STUDY_WORDS } from "../src/pet/pet-words";
 const qaDir = process.env.PET_QA_DIR ?? path.join(tmpdir(), "pet-vocab-qa");
 mkdirSync(qaDir, { recursive: true });
 
+test("unresolved vocabulary returns in later cycles until mastered", async ({ page }) => {
+  await start(page);
+  let schedule = ensureSchedule(null, {}, "2026-09-09", { 1: "unknown", 2: "unknown" });
+  schedule = updateStudyDay(schedule, 1, 0, day => ({ ...day, ratings: { 1: "again", 2: "learning" } }));
+  await page.evaluate(value => localStorage.setItem("pet-vocab-progress-v2-RUN1", JSON.stringify(value)), {
+    schedule, ratings: { 1: "again", 2: "learning" }, vocabulary: { 1: "unknown", 2: "unknown" }, reviews: [],
+  });
+  await page.clock.setFixedTime(new Date("2026-09-21T12:00:00+08:00"));
+  await page.reload();
+  await login(page);
+  await expect(page.getByRole("heading", { name: "第 6 天 · 巩固复习" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "ability", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^认识/ }).click();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "今日单词已完成" })).toBeVisible();
+  // Skip day seven: achieve remains unresolved and returns next cycle.
+  await page.clock.setFixedTime(new Date("2026-09-28T12:00:00+08:00"));
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "achieve", exact: true })).toBeVisible();
+  await expect(page.locator(".pet-cycle-days li").nth(5)).toContainText("1 词");
+  await expect(page.locator(".pet-cycle-days li").nth(6)).toContainText("0 词");
+  await page.getByRole("button", { name: /^认识/ }).click();
+  await page.clock.setFixedTime(new Date("2026-10-05T12:00:00+08:00"));
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "今天没有待复习词" })).toBeVisible();
+});
+
 async function login(page: Page, username = "RUN1"): Promise<void> {
   await page.getByLabel("用户名").fill(username);
   await page.locator("#pet-password").fill("e2e-test-only-password");

@@ -84,20 +84,26 @@ export function ensureSchedule(previous: StudySchedule | null, ratings: Record<n
     }
   }
   if (dayIndex >= 5 && !cycle.reviewPlanned) {
-    const firstFiveRatings = Object.assign({}, ...cycle.days.slice(0, 5).map((day) => day.ratings)) as Record<number, Rating>;
-    const candidates = [...new Set(cycle.days.slice(0, 5).flatMap((day) => day.wordIds))]
-      .filter((id) => (firstFiveRatings[id] === "again" || firstFiveRatings[id] === "learning") && (!choices || choices[id] === "unknown"))
-      .sort((left, right) => Number(firstFiveRatings[left] !== "again") - Number(firstFiveRatings[right] !== "again"));
+    // Carry actual study records across every earlier cycle, including missed
+    // review days. The global rating also reflects subsequent free practice.
+    const studyDays = schedule.cycles.filter(item => item.number <= cycleNumber)
+      .sort((left, right) => left.number - right.number)
+      .flatMap(item => item.number === cycleNumber ? item.days.slice(0, 5) : item.days);
+    const latestRatings: Record<number, Rating> = Object.assign({}, ...studyDays.map(day => day.ratings), ratings);
+    const validIds = new Set(pool.map(word => word.id));
+    const candidates = [...new Set(studyDays.flatMap(day => day.wordIds.filter(id => day.ratings[id])))]
+      .filter(id => validIds.has(id) && (latestRatings[id] === "again" || latestRatings[id] === "learning") && (!choices || choices[id] === "unknown"))
+      .sort((left, right) => Number(latestRatings[left] !== "again") - Number(latestRatings[right] !== "again"));
     const split = Math.ceil(candidates.length / 2);
     const days = cycle.days.map((day, index) => index < 5 ? day : { ...day, wordIds: index === 5 ? candidates.slice(0, split) : candidates.slice(split) });
     const nextCycle = { ...cycle, reviewPlanned: true, days };
     schedule = { ...schedule, cycles: schedule.cycles.map((item) => item.number === cycleNumber ? nextCycle : item) };
   }
-  if (choices && dayIndex >= 5) {
+  if (dayIndex >= 5) {
     schedule = { ...schedule, cycles: schedule.cycles.map(item => item.number !== cycleNumber ? item : {
       ...item, days: item.days.map((day, index) => {
         if (index < dayIndex || wordsComplete(day)) return day;
-        const wordIds = day.wordIds.filter(id => day.ratings[id] || choices[id] === "unknown");
+        const wordIds = day.wordIds.filter(id => day.ratings[id] || ((!choices || choices[id] === "unknown") && ratings[id] !== "known"));
         return wordIds.length === day.wordIds.length ? day : { ...day, wordIds };
       }),
     }) };

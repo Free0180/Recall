@@ -3,6 +3,35 @@ import { addDays, currentStudyDay, dictationCount, ensureSchedule, normaliseSpel
 import { PET_STUDY_WORDS } from "./pet-words";
 
 describe("seven calendar day study cycle", () => {
+  it("carries unresolved words across cycles, merges new weak words, and drops mastered words", () => {
+    let schedule = ensureSchedule(null, {}, "2026-09-09");
+    schedule = updateStudyDay(schedule, 1, 0, day => ({ ...day, ratings: { 1: "again", 2: "learning" } }));
+    schedule = ensureSchedule(schedule, { 1: "again", 2: "learning" }, "2026-09-14");
+    schedule = updateStudyDay(schedule, 1, 5, day => ({ ...day, ratings: { 1: "known" } }));
+    // Day seven was missed. Day one of the next cycle adds a different weak word.
+    schedule = ensureSchedule(schedule, { 1: "known", 2: "learning" }, "2026-09-16");
+    const newId = schedule.cycles[1].days[0].wordIds[0];
+    schedule = updateStudyDay(schedule, 2, 0, day => ({ ...day, ratings: { [newId]: "again" } }));
+    const ratings: Record<number, Rating> = { 1: "known", 2: "learning", [newId]: "again" };
+    schedule = ensureSchedule(schedule, ratings, "2026-09-21");
+    expect(schedule.cycles[1].days[5].wordIds).toEqual([newId]);
+    expect(schedule.cycles[1].days[6].wordIds).toEqual([2]);
+    const history = JSON.stringify(schedule.cycles);
+    // Skip two entire cycles: unresolved words still survive, once each.
+    const later = ensureSchedule(schedule, ratings, "2026-10-12");
+    expect(later.cycles.at(-1)!.days.slice(5).flatMap(day => day.wordIds)).toEqual([newId, 2]);
+    expect(JSON.stringify(later.cycles.slice(0, -1))).toBe(history);
+    const mastered = ensureSchedule(later, { 1: "known", 2: "known", [newId]: "known" }, "2026-10-19");
+    expect(mastered.cycles.at(-1)!.days.slice(5).flatMap(day => day.wordIds)).toEqual([]);
+  });
+
+  it("excludes unstudied words and applied known choices from cross-cycle reviews", () => {
+    let schedule = ensureSchedule(null, {}, "2026-09-09", { 1: "unknown", 2: "unknown", 3: "unknown" });
+    schedule = updateStudyDay(schedule, 1, 0, day => ({ ...day, ratings: { 1: "again", 2: "learning" } }));
+    schedule = ensureSchedule(schedule, { 1: "again", 2: "learning" }, "2026-09-21", { 1: "known", 2: "unknown", 3: "unknown" });
+    expect(schedule.cycles.at(-1)!.days.slice(5).flatMap(day => day.wordIds)).toEqual([2]);
+  });
+
   it("defaults to ten new words daily, without inventing new words after the library is exhausted", () => {
     const schedule = ensureSchedule(null, {}, "2026-09-09");
     expect(schedule.dailyTarget).toBe(10);
