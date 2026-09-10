@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+const qaDir = process.env.PET_QA_DIR ?? path.join(tmpdir(), "pet-vocab-qa");
+mkdirSync(qaDir, { recursive: true });
 
 function collectRuntimeErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -15,6 +19,11 @@ async function login(page: Page, username = "RUN1"): Promise<void> {
   await page.locator("#pet-password").fill("e2e-test-only-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page.getByRole("button", { name: "打开用户中心" })).toContainText(username);
+  if (username === "RUN1") {
+    await page.getByRole("button", { name: "词库", exact: true }).click();
+    for (const word of ["ability", "achieve"]) await page.getByRole("button", { name: `不认识 ${word}`, exact: true }).click();
+    await page.getByRole("button", { name: "学习", exact: true }).click();
+  }
 }
 
 test("tablet learning flow, wrong words, library and reading", async ({ page }) => {
@@ -35,7 +44,7 @@ test("tablet learning flow, wrong words, library and reading", async ({ page }) 
   await expect(page.getByText("She has the ability to learn quickly.")).toBeVisible();
   await expect(page.locator("body")).not.toContainText("Internal Server Error");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-  await page.screenshot({ path: "docs/qa/pet-tablet-study-1440x900.png", fullPage: false });
+  await page.screenshot({ path: path.join(qaDir, "pet-tablet-study-1440x900.png"), fullPage: false });
 
   await page.getByRole("button", { name: /不认识/ }).click();
   await expect(page.getByRole("heading", { name: "achieve" })).toBeVisible();
@@ -50,7 +59,7 @@ test("tablet learning flow, wrong words, library and reading", async ({ page }) 
   await expect(page.getByText("environment", { exact: true })).toBeVisible();
   await expect(page.getByText("ability", { exact: true })).toHaveCount(0);
   await page.getByRole("radio", { name: /PET\/B1 扩展词库/ }).click();
-  await expect(page.getByText("2354", { exact: true })).toBeVisible();
+  await expect(page.locator(".pet-library-summary strong")).toBeVisible();
   await page.getByPlaceholder("搜索英文或中文释义").fill("abandon");
   await expect(page.getByText("abandon", { exact: true })).toBeVisible();
 
@@ -69,7 +78,7 @@ test("tablet learning flow, wrong words, library and reading", async ({ page }) 
   await page.getByRole("button", { name: "opportunity", exact: true }).click();
   await expect(page.locator(".pet-reading-word")).toContainText("机会");
 
-  await page.screenshot({ path: "docs/qa/pet-tablet-1440x900.png", fullPage: true });
+  await page.screenshot({ path: path.join(qaDir, "pet-tablet-1440x900.png"), fullPage: true });
   expect(runtimeErrors).toEqual([]);
 });
 
@@ -80,7 +89,7 @@ test("mobile first viewport keeps the complete study controls usable", async ({ 
   await page.evaluate(() => localStorage.clear());
   await page.reload();
 
-  await page.screenshot({ path: "docs/qa/pet-login-430x932.png", fullPage: false });
+  await page.screenshot({ path: path.join(qaDir, "pet-login-430x932.png"), fullPage: false });
   await login(page);
   await expect(page.getByRole("heading", { name: "ability" })).toBeVisible();
   await expect(page.getByRole("button", { name: /不认识/ })).toBeVisible();
@@ -88,11 +97,11 @@ test("mobile first viewport keeps the complete study controls usable", async ({ 
   await expect(page.getByRole("button", { name: /^认识/ })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "主要导航" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-  await page.screenshot({ path: "docs/qa/pet-mobile-study-430x932.png", fullPage: false });
+  await page.screenshot({ path: path.join(qaDir, "pet-mobile-study-430x932.png"), fullPage: false });
 
   await page.getByRole("button", { name: /有点熟/ }).click();
   await expect(page.getByRole("heading", { name: "achieve" })).toBeVisible();
-  await page.screenshot({ path: "docs/qa/pet-mobile-430x932.png", fullPage: false });
+  await page.screenshot({ path: path.join(qaDir, "pet-mobile-430x932.png"), fullPage: false });
   expect(runtimeErrors).toEqual([]);
 });
 
@@ -142,7 +151,7 @@ test("reading and listening intensive modules keep different content", async ({ 
 
   await page.getByRole("tab", { name: /听力精读/ }).click();
   await expect(page.getByRole("heading", { name: "听力精读", exact: true })).toBeVisible();
-  await expect(page.getByText("B1 Preliminary for Schools · Listening Sample Test 1")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "B1 Preliminary for Schools · Listening Sample Test 1", exact: true })).toBeVisible();
   await expect(page.locator("audio")).toHaveAttribute("src", /cambridgeenglish\.org/);
   await expect(page.getByRole("heading", { name: "导入原文后开始逐句精听" })).toBeVisible();
 

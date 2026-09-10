@@ -1,0 +1,54 @@
+import { expect, test } from "@playwright/test";
+import path from "node:path";
+import { tmpdir } from "node:os";
+
+test("core and expanded queues support marking, restoration, daily study and account isolation", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.goto("/");
+  await page.evaluate(() => { localStorage.clear(); localStorage.setItem("pet-vocab-e2e-session", "RUN1"); });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "今天没有新词任务" })).toBeVisible();
+  await page.getByRole("button", { name: "词库", exact: true }).click();
+  await page.getByRole("button", { name: "不认识 ability", exact: true }).click();
+  await page.getByRole("button", { name: "认识 achieve", exact: true }).click();
+  const filters = page.getByRole("group", { name: "单词掌握状态" });
+  await filters.getByRole("button", { name: /^认识/ }).click();
+  await expect(page.locator(".pet-vocabulary-row")).toHaveCount(1);
+  await page.getByRole("button", { name: "恢复 achieve", exact: true }).click();
+  await expect(page.locator(".pet-vocabulary-row")).toHaveCount(0);
+  await filters.getByRole("button", { name: /^不认识/ }).click();
+  await expect(page.locator(".pet-vocabulary-row")).toHaveCount(2);
+  await page.getByRole("button", { name: "认识 ability", exact: true }).click();
+  await page.getByRole("radio", { name: /扩展词库/ }).click();
+  await filters.getByRole("button", { name: /^全部/ }).click();
+  await page.getByLabel("搜索单词").fill("abandon");
+  await page.getByRole("button", { name: "不认识 abandon", exact: true }).click();
+  await filters.getByRole("button", { name: /^不认识/ }).click();
+  await expect(page.locator(".pet-vocabulary-row")).toHaveCount(1);
+  await page.screenshot({ path: path.join(tmpdir(), "pet-vocabulary-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 430, height: 932 });
+  await expect(page.getByRole("button", { name: "认识 abandon", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: path.join(tmpdir(), "pet-vocabulary-mobile.png"), fullPage: true });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "achieve", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^认识/ }).click();
+  await expect(page.getByRole("heading", { name: "abandon", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^认识/ }).click();
+  await expect(page.getByRole("heading", { name: "今日单词已完成" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Learning Together" })).toBeVisible();
+  for (const word of ["achieve", "abandon"]) {
+    await page.getByLabel("英文拼写").fill(word);
+    await page.getByRole("button", { name: "检查拼写" }).click();
+    if (word === "achieve") await page.getByRole("button", { name: "下一词", exact: true }).click();
+  }
+  await expect(page.getByText("今日听写已完成", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("今日听写已完成", { exact: true })).toBeVisible();
+  await page.evaluate(() => localStorage.setItem("pet-vocab-e2e-session", "RUN2"));
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "今天没有新词任务" })).toBeVisible();
+  await page.getByRole("button", { name: "词库", exact: true }).click();
+  await page.getByRole("group", { name: "单词掌握状态" }).getByRole("button", { name: /^认识/ }).click();
+  await expect(page.locator(".pet-vocabulary-row")).toHaveCount(0);
+});

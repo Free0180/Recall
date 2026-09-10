@@ -8,6 +8,7 @@ export interface ReadingDocument {
   sourceType: ReadingSourceType;
   mode: ReadingMode;
   createdAt: number;
+  listeningResourceId?: string;
 }
 
 const MAX_DOCUMENTS = 8;
@@ -68,14 +69,19 @@ export async function parseReadingFile(file: File, mode: ReadingMode = "reading"
       file.arrayBuffer(),
     ]);
     pdfjs.GlobalWorkerOptions.workerSrc = workerModule.default;
-    const pdf = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+    const task = pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) });
+    const pdf = await task.promise;
     const pages: string[] = [];
+    try {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber);
       const textContent = await page.getTextContent();
       pages.push(textContent.items.map((item) => ("str" in item ? item.str : "")).join(" "));
     }
     content = pages.join("\n\n");
+    } finally {
+      await task.destroy();
+    }
   } else {
     throw new Error("只支持 TXT、DOCX 和 PDF 文件。");
   }

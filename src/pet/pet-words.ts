@@ -12,7 +12,7 @@ export interface PetWord {
   translation: string;
 }
 
-export type PetCategory = "学习与能力" | "旅行与活动" | "日常交流" | "生活与环境" | "感受与责任";
+export type PetCategory = "扩展词库" | "学习与能力" | "旅行与活动" | "日常交流" | "生活与环境" | "感受与责任";
 
 export const PET_WORDS: PetWord[] = [
   {

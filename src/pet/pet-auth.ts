@@ -117,3 +117,14 @@ export async function updatePetPassword(password: string): Promise<string | null
   const { error } = await supabase.auth.updateUser({ password });
   return error ? "密码修改失败，请稍后再试" : null;
 }
+
+export async function petArticleConnection(): Promise<{ url: string; headers: Record<string, string> }> {
+  if (TEST_AUTH_ENABLED) return { url: "/__pet_test_article", headers: {} };
+  if (!supabase || !supabaseUrl || !supabasePublishableKey) throw new Error("文章服务尚未配置，请联系管理员");
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session) throw new Error("登录已过期，请重新登录后生成文章");
+  return {
+    url: `${supabaseUrl}/functions/v1/pet-daily-article`,
+    headers: { Authorization: `Bearer ${data.session.access_token}`, apikey: supabasePublishableKey },
+  };
+}

@@ -1,8 +1,8 @@
+import { asStudyWord, readSavedWords, studyPool } from "./vocabulary";
 import {
   BookMarked,
   BookOpen,
   Check,
-  ChevronLeft,
   ChevronRight,
   CircleUserRound,
   Download,
@@ -11,7 +11,6 @@ import {
   ExternalLink,
   FileAudio,
   FileText,
-  Flame,
   Gauge,
   Headphones,
   LibraryBig,
@@ -19,11 +18,9 @@ import {
   LogOut,
   Play,
   Repeat2,
-  RotateCcw,
   Search,
   Settings2,
   ShieldCheck,
-  Sparkles,
   Trash2,
   Upload,
   Users,
@@ -45,9 +42,12 @@ import {
 import { loadB1Words, type B1Word } from "@/pet/pet-lexicons";
 import { loadReadingDocuments, parseReadingFile, removeReadingDocument, saveReadingDocument, splitIntoSentences, type ReadingDocument, type ReadingMode } from "@/pet/reading-documents";
 import "@/pet/pet-app.css";
+import { speak } from "./pet-speech";
+import { WeeklyStudy } from "./weekly-study";
+import { LISTENING_RESOURCES, listeningPdfUrl, loadListeningResourceId, resourceForFile, type ListeningResource } from "./listening-resources";
+import { currentStudyDay, ensureSchedule, localDateKey, readSchedule, studiedCount, updateStudyDay, type Rating, type StudySchedule, type VocabularyChoices, type VocabularyStatus } from "./study-cycle";
 
 type Tab = "study" | "library" | "reading" | "wrong" | "profile";
-type Rating = "again" | "learning" | "known";
 
 interface ReviewRecord {
   wordId: number;
@@ -57,11 +57,14 @@ interface ReviewRecord {
 }
 
 interface PetProgress {
+  vocabulary: VocabularyChoices;
+  savedWords: PetWord[];
   activeIndex: number;
   ratings: Record<number, Rating>;
   reviews: ReviewRecord[];
   streak: number;
   lastStudyDate: string | null;
+  schedule: StudySchedule | null;
 }
 
 interface ListeningRange {
@@ -69,20 +72,20 @@ interface ListeningRange {
   end: number;
 }
 
-const DAILY_TARGET = 10;
 const B1_WORD_COUNT = 2354;
 const READING_SPEEDS = [0.75, 1, 1.25, 1.5] as const;
 const PET_WORD_MAP = new Map(PET_WORDS.map((word) => [word.word.toLowerCase(), word]));
 const CAMBRIDGE_LISTENING_PAGE = "https://www.cambridgeenglish.org/exams-and-tests/qualifications/preliminary/preparation/?skill=grammar,listening";
-const CAMBRIDGE_LISTENING_AUDIO = "https://www.cambridgeenglish.org/Images/709695-b1-preliminary-for-schools-handbook-for-teachers-listening-audio-files.mp3";
-const CAMBRIDGE_LISTENING_TRANSCRIPT = "https://www.cambridgeenglish.org/Images/697390-b1-preliminary-for-schools-listening-sample-test-1-tapescript.pdf";
 
 const EMPTY_PROGRESS: PetProgress = {
+  vocabulary: {},
+  savedWords: [],
   activeIndex: 0,
   ratings: {},
   reviews: [],
   streak: 0,
   lastStudyDate: null,
+  schedule: null,
 };
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof Play }> = [
@@ -92,10 +95,6 @@ const TABS: Array<{ id: Tab; label: string; icon: typeof Play }> = [
   { id: "wrong", label: "错词", icon: BookMarked },
   { id: "profile", label: "我的", icon: CircleUserRound },
 ];
-
-function localDateKey(date = new Date()): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
 
 function previousDateKey(): string {
   const date = new Date();
@@ -113,30 +112,18 @@ function loadProgress(username: string): PetProgress {
     if (!raw) return EMPTY_PROGRESS;
     const parsed = JSON.parse(raw) as Partial<PetProgress>;
     return {
+      savedWords: readSavedWords(parsed.savedWords),
+      vocabulary: parsed.vocabulary ?? Object.fromEntries(Object.entries(parsed.ratings ?? {}).map(([id, rating]) => [id, rating === "known" ? "known" : "unknown"])),
       activeIndex: Math.max(0, Math.min(PET_STUDY_WORDS.length - 1, parsed.activeIndex ?? 0)),
       ratings: parsed.ratings ?? {},
       reviews: Array.isArray(parsed.reviews) ? parsed.reviews : [],
       streak: Math.max(0, parsed.streak ?? 0),
       lastStudyDate: parsed.lastStudyDate ?? null,
+      schedule: readSchedule(parsed.schedule, studyPool(readSavedWords(parsed.savedWords))),
     };
   } catch {
     return EMPTY_PROGRESS;
   }
-}
-
-function getBritishVoice(): SpeechSynthesisVoice | undefined {
-  return window.speechSynthesis.getVoices().find((voice) => voice.lang.toLowerCase().startsWith("en-gb"));
-}
-
-function speak(text: string, rate = 0.82): void {
-  if (!("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "en-GB";
-  utterance.rate = rate;
-  const britishVoice = getBritishVoice();
-  if (britishVoice) utterance.voice = britishVoice;
-  window.speechSynthesis.speak(utterance);
 }
 
 function listeningRangesStorageKey(username: string, documentId: string): string {
@@ -175,20 +162,33 @@ function createDictationPrompt(sentence: string): string {
   });
 }
 
-function todayUniqueCount(reviews: ReviewRecord[]): number {
-  const today = localDateKey();
-  return new Set(reviews.filter((review) => review.date === today).map((review) => review.wordId)).size;
-}
-
 export function PetApp(): JSX.Element {
   const [currentUser, setCurrentUser] = useState<PetUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [tab, setTab] = useState<Tab>("study");
   const [progress, setProgress] = useState<PetProgress>(EMPTY_PROGRESS);
   const [notice, setNotice] = useState<string | null>(null);
+  const [progressOwner, setProgressOwner] = useState<string | null>(null);
+  const progressOwnerRef = useRef<string | null>(null);
+  const [today, setToday] = useState(localDateKey);
+  const [practiceWord, setPracticeWord] = useState<PetWord | null>(null);
   const currentUsername = currentUser?.username ?? null;
-  const currentWord = PET_STUDY_WORDS[progress.activeIndex];
-  const studiedToday = todayUniqueCount(progress.reviews);
+  const wordPool = useMemo(() => studyPool(progress.savedWords), [progress.savedWords]);
+  const schedule = useMemo(() => ensureSchedule(progress.schedule, progress.ratings, today, progress.vocabulary, wordPool), [progress.schedule, progress.ratings, progress.vocabulary, today, wordPool]);
+  const activeDay = currentStudyDay(schedule, today).day;
+  const studiedToday = studiedCount(activeDay);
+
+  useEffect(() => {
+    const refreshDate = (): void => setToday(localDateKey());
+    const timer = window.setInterval(refreshDate, 30_000);
+    window.addEventListener("focus", refreshDate);
+    document.addEventListener("visibilitychange", refreshDate);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshDate);
+      document.removeEventListener("visibilitychange", refreshDate);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -208,12 +208,21 @@ export function PetApp(): JSX.Element {
 
   useEffect(() => {
     setProgress(currentUsername ? loadProgress(currentUsername) : EMPTY_PROGRESS);
+    setProgressOwner(currentUsername);
+    progressOwnerRef.current = currentUsername;
+    setPracticeWord(null);
     setTab("study");
   }, [currentUsername]);
 
   useEffect(() => {
-    if (currentUser) localStorage.setItem(progressStorageKey(currentUser.username), JSON.stringify(progress));
-  }, [currentUser, progress]);
+    if (currentUsername && progressOwner === currentUsername) {
+      try {
+        localStorage.setItem(progressStorageKey(currentUsername), JSON.stringify({ ...progress, schedule }));
+      } catch {
+        setNotice("保存失败：设备存储空间不足，请在离开前导出备份");
+      }
+    }
+  }, [currentUsername, progressOwner, progress, schedule]);
 
   useEffect(() => {
     if (!notice) return;
@@ -221,14 +230,8 @@ export function PetApp(): JSX.Element {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
-  const moveTo = useCallback((index: number) => {
-    setProgress((previous) => ({
-      ...previous,
-      activeIndex: (index + PET_STUDY_WORDS.length) % PET_STUDY_WORDS.length,
-    }));
-  }, []);
-
-  const rateWord = useCallback((rating: Rating) => {
+  const rateWord = useCallback((word: PetWord, rating: Rating, scheduled: boolean) => {
+    if (localDateKey() !== today) { setToday(localDateKey()); return; }
     setProgress((previous) => {
       const today = localDateKey();
       const isNewDay = previous.lastStudyDate !== today;
@@ -238,38 +241,48 @@ export function PetApp(): JSX.Element {
           : 1
         : previous.streak;
 
+      let nextSchedule = ensureSchedule(previous.schedule, previous.ratings, today, previous.vocabulary, studyPool(previous.savedWords));
+      if (scheduled) {
+        const { cycle, day, dayIndex } = currentStudyDay(nextSchedule, today);
+        if (!day.wordIds.includes(word.id)) return previous;
+        nextSchedule = updateStudyDay(nextSchedule, cycle.number, dayIndex, (item) => ({ ...item, ratings: { ...item.ratings, [word.id]: rating } }));
+      }
       return {
         ...previous,
         activeIndex: (previous.activeIndex + 1) % PET_STUDY_WORDS.length,
-        ratings: { ...previous.ratings, [currentWord.id]: rating },
+        ratings: { ...previous.ratings, [word.id]: rating },
+        schedule: nextSchedule,
         reviews: [
           ...previous.reviews.slice(-499),
-          { wordId: currentWord.id, rating, date: today, at: Date.now() },
+          { wordId: word.id, rating, date: today, at: Date.now() },
         ],
         streak: nextStreak,
         lastStudyDate: today,
       };
     });
     setNotice(rating === "known" ? "已掌握，继续保持" : rating === "learning" ? "已加入巩固计划" : "已加入错词本");
-  }, [currentWord.id]);
+  }, [today]);
 
-  useEffect(() => {
-    function handleKey(event: KeyboardEvent): void {
-      if ((event.target as HTMLElement).matches("input, textarea")) return;
-      if (tab !== "study") return;
-      if (event.key === "ArrowLeft") moveTo(progress.activeIndex - 1);
-      if (event.key === "ArrowRight") moveTo(progress.activeIndex + 1);
-      if (event.key === "1") rateWord("again");
-      if (event.key === "2") rateWord("learning");
-      if (event.key === "3") rateWord("known");
-    }
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [moveTo, progress.activeIndex, rateWord, tab]);
+  const updateSchedule = useCallback((update: (schedule: StudySchedule) => StudySchedule) => {
+    if (progressOwnerRef.current !== currentUsername) return;
+    setProgress((previous) => ({ ...previous, schedule: update(ensureSchedule(previous.schedule, previous.ratings, localDateKey(), previous.vocabulary, studyPool(previous.savedWords))) }));
+  }, [currentUsername]);
+
+  function markVocabulary(word: PetWord, status: VocabularyStatus): void {
+    setProgress(previous => {
+      const ratings = { ...previous.ratings };
+      // Restoring a previously studied word makes it eligible as a new task again.
+      if (status === "unknown") delete ratings[word.id];
+      const vocabulary = { ...previous.vocabulary, [word.id]: status };
+      const savedWords = word.id >= 1000 && !previous.savedWords.some(item => item.id === word.id) ? [...previous.savedWords, word] : previous.savedWords;
+      return { ...previous, ratings, vocabulary, savedWords, schedule: ensureSchedule(previous.schedule, ratings, localDateKey(), vocabulary, studyPool(savedWords)) };
+    });
+    setNotice(status === "known" ? "已移入认识列表" : "已加入不认识队列，将按每日名额安排");
+  }
 
   function openWord(word: PetWord): void {
-    const nextIndex = PET_STUDY_WORDS.findIndex((item) => item.id === word.id);
-    moveTo(nextIndex >= 0 ? nextIndex : 0);
+    if (word.id >= 1000) setProgress(previous => previous.savedWords.some(item => item.id === word.id) ? previous : { ...previous, savedWords: [...previous.savedWords, word] });
+    setPracticeWord(word);
     setTab("study");
   }
 
@@ -284,6 +297,7 @@ export function PetApp(): JSX.Element {
 
   if (!authReady) return <AuthLoadingView />;
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
+  if (progressOwner !== currentUsername) return <AuthLoadingView />;
 
   return (
     <div className="pet-app">
@@ -295,7 +309,7 @@ export function PetApp(): JSX.Element {
           </button>
           <div className="pet-greeting">
             <span>早上好，今天继续进步</span>
-            <strong>今日 {Math.min(studiedToday, DAILY_TARGET)} / {DAILY_TARGET}</strong>
+            <strong>今日 {studiedToday} / {activeDay.wordIds.length}</strong>
             <button type="button" className="pet-user-button" onClick={() => setTab("profile")} aria-label="打开用户中心">
               {currentUser.username}
             </button>
@@ -305,18 +319,21 @@ export function PetApp(): JSX.Element {
 
       <main className="pet-main">
         {tab === "study" && (
-          <StudyView
-            word={currentWord}
-            index={progress.activeIndex}
-            progress={progress}
-            studiedToday={studiedToday}
-            onMove={moveTo}
+          <WeeklyStudy
+            wordPool={wordPool}
+            key={`${currentUser.username}:${today}`}
+            username={currentUser.username}
+            today={today}
+            schedule={schedule}
+            onUpdate={updateSchedule}
             onRate={rateWord}
+            practiceWord={practiceWord}
+            onPracticeWord={setPracticeWord}
           />
         )}
-        {tab === "library" && <LibraryView ratings={progress.ratings} onOpenWord={openWord} />}
+        {tab === "library" && <LibraryView ratings={progress.ratings} vocabulary={progress.vocabulary} onMark={markVocabulary} onOpenWord={openWord} />}
         {tab === "reading" && <ReadingView username={currentUser.username} onOpenWord={openWord} />}
-        {tab === "wrong" && <WrongView ratings={progress.ratings} onOpenWord={openWord} />}
+        {tab === "wrong" && <WrongView wordPool={wordPool} ratings={progress.ratings} onOpenWord={openWord} />}
         {tab === "profile" && <ProfileView user={currentUser} progress={progress} onRestore={setProgress} onLogout={handleLogout} />}
       </main>
 
@@ -409,138 +426,10 @@ function LoginView({ onLogin }: { onLogin: (user: PetUser) => void }): JSX.Eleme
   );
 }
 
-interface StudyViewProps {
-  word: PetWord;
-  index: number;
-  progress: PetProgress;
-  studiedToday: number;
-  onMove: (index: number) => void;
-  onRate: (rating: Rating) => void;
-}
-
-function StudyView({ word, index, progress, studiedToday, onMove, onRate }: StudyViewProps): JSX.Element {
-  const weekCount = new Set(progress.reviews.slice(-80).map((review) => review.date)).size;
-  const [activeSyllable, setActiveSyllable] = useState<number | null>(null);
-  const playbackSequence = useRef(0);
-  const categoryPosition = PET_STUDY_WORDS.filter((item) => item.category === word.category).findIndex((item) => item.id === word.id) + 1;
-  const categoryTotal = PET_STUDY_WORDS.filter((item) => item.category === word.category).length;
-
-  useEffect(() => {
-    playbackSequence.current += 1;
-    setActiveSyllable(null);
-    window.speechSynthesis?.cancel();
-  }, [word.id]);
-
-  function playSyllables(): void {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const sequence = playbackSequence.current + 1;
-    playbackSequence.current = sequence;
-    const voice = getBritishVoice();
-
-    function playPart(partIndex: number): void {
-      if (playbackSequence.current !== sequence || partIndex >= word.syllables.length) {
-        setActiveSyllable(null);
-        return;
-      }
-      setActiveSyllable(partIndex);
-      const utterance = new SpeechSynthesisUtterance(word.syllables[partIndex]);
-      utterance.lang = "en-GB";
-      utterance.rate = 0.62;
-      if (voice) utterance.voice = voice;
-      utterance.onend = () => playPart(partIndex + 1);
-      utterance.onerror = () => setActiveSyllable(null);
-      window.speechSynthesis.speak(utterance);
-    }
-
-    playPart(0);
-  }
-
-  return (
-    <div className="pet-study-grid">
-      <section className="pet-word-card" aria-labelledby="active-word">
-        <div className="pet-word-card__topline">
-          <span>主题：{word.category} · {categoryPosition}/{categoryTotal}</span>
-          <span>{index + 1} / {PET_STUDY_WORDS.length}</span>
-        </div>
-        <div className="pet-word-progress" role="progressbar" aria-label="词库进度" aria-valuenow={index + 1} aria-valuemin={1} aria-valuemax={PET_STUDY_WORDS.length}>
-          <span style={{ width: `${((index + 1) / PET_STUDY_WORDS.length) * 100}%` }} />
-        </div>
-
-        <div className="pet-word-heading">
-          <div>
-            <h1 id="active-word">{word.word}</h1>
-            <p>{word.ipa}</p>
-          </div>
-          <button className="pet-speak-button" type="button" onClick={() => speak(word.word)} aria-label={`播放 ${word.word} 的英式发音`}>
-            <Volume2 aria-hidden="true" />
-          </button>
-        </div>
-
-        <p className="pet-meaning"><strong>{word.partOfSpeech}</strong> {word.meaning}</p>
-
-        <div className="pet-phonics">
-          <div className="pet-phonics__heading">
-            <div className="pet-section-label"><Sparkles aria-hidden="true" />自然拼读</div>
-            <button type="button" onClick={playSyllables} aria-label="按顺序播放音节"><Play aria-hidden="true" />播放音节</button>
-          </div>
-          <div className="pet-syllables" aria-label={`音节分段 ${word.syllables.join(" ")}`}>
-            {word.syllables.map((part, partIndex) => <span className={activeSyllable === partIndex ? "is-active" : ""} key={`${part}-${partIndex}`}>{part}</span>)}
-          </div>
-          <strong>{word.stress}</strong>
-          <p>{word.phonics}</p>
-        </div>
-
-        <div className="pet-example">
-          <div className="pet-section-label"><BookOpen aria-hidden="true" />例句</div>
-          <button type="button" onClick={() => speak(word.example)} aria-label="朗读例句">
-            <span>{word.example.split(/(\b[A-Za-z]+\b)/).map((token, tokenIndex) => token.toLowerCase() === word.word.toLowerCase() ? <mark key={`${token}-${tokenIndex}`}>{token}</mark> : token)}</span><Volume2 aria-hidden="true" />
-          </button>
-          <p>{word.translation}</p>
-        </div>
-
-        <div className="pet-rating" aria-label="选择熟悉程度">
-          <button type="button" className="pet-rating__again" onClick={() => onRate("again")}><X aria-hidden="true" /><span>不认识<small>按 1</small></span></button>
-          <button type="button" className="pet-rating__learning" onClick={() => onRate("learning")}><RotateCcw aria-hidden="true" /><span>有点熟<small>按 2</small></span></button>
-          <button type="button" className="pet-rating__known" onClick={() => onRate("known")}><Check aria-hidden="true" /><span>认识<small>按 3</small></span></button>
-        </div>
-
-        <div className="pet-word-pager">
-          <button type="button" onClick={() => onMove(index - 1)}><ChevronLeft aria-hidden="true" />上一个</button>
-          <button type="button" onClick={() => onMove(index + 1)}>下一个<ChevronRight aria-hidden="true" /></button>
-        </div>
-      </section>
-
-      <aside className="pet-study-aside">
-        <section className="pet-plan">
-          <div className="pet-panel-title"><span><Check aria-hidden="true" /></span><div><h2>今日计划</h2><p>一点一点，稳稳进步</p></div></div>
-          <PlanRow label="新学单词" value={`${Math.min(studiedToday, 10)} / 10`} progress={Math.min(studiedToday / 10, 1)} tone="blue" />
-          <PlanRow label="复习单词" value={`${Math.min(Object.keys(progress.ratings).length, 8)} / 8`} progress={Math.min(Object.keys(progress.ratings).length / 8, 1)} tone="green" />
-          <PlanRow label="精读训练" value="0 / 10分钟" progress={0} tone="coral" />
-        </section>
-        <section className="pet-streak">
-          <div className="pet-panel-title"><span><Flame aria-hidden="true" /></span><div><h2>本周进度</h2><p>每次学习都算数</p></div></div>
-          <div className="pet-streak__number"><strong>{progress.streak || weekCount}</strong><span>天<br />连续学习</span></div>
-          <div className="pet-week" aria-label="本周学习记录">
-            {["一", "二", "三", "四", "五", "六", "日"].map((day, dayIndex) => <span className={dayIndex < Math.min(weekCount, 7) ? "is-done" : ""} key={day}>{day}</span>)}
-          </div>
-        </section>
-      </aside>
-    </div>
-  );
-}
-
-function PlanRow({ label, value, progress, tone }: { label: string; value: string; progress: number; tone: string }): JSX.Element {
-  return (
-    <div className={`pet-plan-row pet-plan-row--${tone}`}>
-      <div><span>{label}</span><strong>{value}</strong></div>
-      <div className="pet-plan-row__bar"><span style={{ width: `${progress * 100}%` }} /></div>
-    </div>
-  );
-}
-
-function LibraryView({ ratings, onOpenWord }: { ratings: Record<number, Rating>; onOpenWord: (word: PetWord) => void }): JSX.Element {
+function LibraryView({ ratings, vocabulary, onMark, onOpenWord }: { ratings: Record<number, Rating>; vocabulary: VocabularyChoices; onMark: (word: PetWord, status: VocabularyStatus) => void; onOpenWord: (word: PetWord) => void }): JSX.Element {
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | VocabularyStatus>("all");
+  const [visibleCount, setVisibleCount] = useState(100);
   const [lexicon, setLexicon] = useState<"curated" | "b1">("curated");
   const [b1Words, setB1Words] = useState<B1Word[]>([]);
   const [loading, setLoading] = useState(false);
@@ -558,14 +447,14 @@ function LibraryView({ ratings, onOpenWord }: { ratings: Record<number, Rating>;
 
   const filteredCurated = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return PET_WORDS.filter((word) => !needle || word.word.includes(needle) || word.meaning.includes(needle));
-  }, [query]);
+    return PET_WORDS.filter((word) => (filter === "all" || vocabulary[word.id] === filter) && (!needle || word.word.includes(needle) || word.meaning.includes(needle)));
+  }, [query, filter, vocabulary]);
 
   const filteredB1 = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return b1Words;
-    return b1Words.filter((word) => word.word.toLowerCase().includes(needle) || word.translation_cn.includes(needle));
-  }, [b1Words, query]);
+    return b1Words.map(asStudyWord).filter(word => (filter === "all" || vocabulary[word.id] === filter) && (!needle || word.word.toLowerCase().includes(needle) || word.meaning.includes(needle)));
+  }, [b1Words, query, filter, vocabulary]);
+  const currentWords = lexicon === "curated" ? PET_WORDS : b1Words.map(asStudyWord);
 
   return (
     <section className="pet-page">
@@ -578,31 +467,29 @@ function LibraryView({ ratings, onOpenWord }: { ratings: Record<number, Rating>;
           <span><LibraryBig aria-hidden="true" /></span><div><strong>PET/B1 扩展词库</strong><p>{B1_WORD_COUNT} 词 · CEFR B1 开放词表</p></div><Check aria-hidden="true" />
         </button>
       </div>
-      <div className="pet-library-summary"><strong>{lexicon === "curated" ? PET_WORDS.length : B1_WORD_COUNT}</strong><span>当前词库词量</span><small>{lexicon === "curated" ? "可进入分类学习" : "输入英文或中文快速检索"}</small></div>
+      <div className="pet-vocabulary-filters" role="group" aria-label="单词掌握状态">
+        {(["all", "known", "unknown"] as const).map(value => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === "all" ? "全部" : value === "known" ? "认识" : "不认识"}<strong>{value === "all" ? currentWords.length : currentWords.filter(word => vocabulary[word.id] === value).length}</strong></button>)}
+      </div>
+      <p className="pet-library-note">先标记“不认识”，才会进入每日新词计划。认识的词可随时恢复；当天已完成的任务保留。</p>
+      <div className="pet-library-summary"><strong>{lexicon === "curated" ? PET_WORDS.length : B1_WORD_COUNT}</strong><span>当前词库词量</span><small>{lexicon === "curated" ? "标记后进入每日计划" : "标记后进入每日计划"}</small></div>
       <label className="pet-search"><Search aria-hidden="true" /><span className="sr-only">搜索单词</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索英文或中文释义" /></label>
       {loading ? <div className="pet-loading"><LoaderCircle aria-hidden="true" />正在加载 2354 个词条…</div> : null}
       {loadError ? <p className="pet-inline-error" role="alert">{loadError}</p> : null}
       <div className="pet-library-list">
-        {lexicon === "curated" ? filteredCurated.map((word) => {
-          const rating = ratings[word.id];
+        {(lexicon === "curated" ? filteredCurated : filteredB1.slice(0, visibleCount)).map((word) => {
+          const rating = vocabulary[word.id] === "known" ? "known" : vocabulary[word.id] === "unknown" ? "again" : ratings[word.id];
           return (
-            <button type="button" key={word.id} onClick={() => onOpenWord(word)}>
+            <div className="pet-vocabulary-row" key={word.id}><button className="pet-vocabulary-open" type="button" onClick={() => onOpenWord(word)}>
               <span className={`pet-word-status pet-word-status--${rating ?? "new"}`} aria-hidden="true" />
               <span><strong>{word.word}</strong><small>{word.ipa} · {word.category}</small></span>
               <span>{word.partOfSpeech} {word.meaning}</span>
               <ChevronRight aria-hidden="true" />
-            </button>
+            </button><div className="pet-vocabulary-actions">{vocabulary[word.id] === "known" ? <button type="button" onClick={() => onMark(word, "unknown")} aria-label={`恢复 ${word.word}`}>恢复</button> : <><button type="button" onClick={() => onMark(word, "known")} aria-label={`认识 ${word.word}`}>认识</button><button type="button" disabled={vocabulary[word.id] === "unknown"} onClick={() => onMark(word, "unknown")} aria-label={`不认识 ${word.word}`}>{vocabulary[word.id] === "unknown" ? "已加入" : "不认识"}</button></>}</div></div>
           );
-        }) : filteredB1.slice(0, 100).map((word) => (
-          <button type="button" key={`${word.word}-${word.part_of_speech}`} onClick={() => speak(word.word)} aria-label={`朗读 ${word.word}`}>
-            <span className="pet-word-status pet-word-status--new" aria-hidden="true" />
-            <span><strong>{word.word}</strong><small>{word.phonetic} · {word.cefr_level}</small></span>
-            <span>{word.part_of_speech} {word.translation_cn}</span>
-            <Volume2 aria-hidden="true" />
-          </button>
-        ))}
+        })}
       </div>
-      {lexicon === "b1" && filteredB1.length > 100 ? <p className="pet-library-note">共找到 {filteredB1.length} 个词，当前显示前 100 个。继续输入可缩小范围。</p> : null}
+      {!loading && !(lexicon === "curated" ? filteredCurated : filteredB1).length ? <p className="pet-library-note">此列表暂无单词。可切换“全部”标记单词，或调整搜索内容。</p> : null}
+      {lexicon === "b1" && filteredB1.length > visibleCount ? <div className="pet-vocabulary-filters"><button type="button" onClick={() => setVisibleCount(value => value + 100)}>加载更多单词（已显示 {visibleCount} / {filteredB1.length}）</button></div> : null}
       {lexicon === "b1" ? <p className="pet-library-source">数据来自开放的 CEFR B1 词表，并非 Cambridge 官方词表；详细许可见 data/ATTRIBUTION.md。</p> : null}
     </section>
   );
@@ -614,6 +501,11 @@ function ReadingView({ username, onOpenWord }: { username: string; onOpenWord: (
   const [activeDocument, setActiveDocument] = useState<ReadingDocument | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioName, setAudioName] = useState("");
+  const [resourceId, setResourceId] = useState(() => loadListeningResourceId(username));
+  const [audioError, setAudioError] = useState("");
+  const resource = LISTENING_RESOURCES.find((item) => item.id === resourceId) ?? LISTENING_RESOURCES[0];
+  const effectiveResource = LISTENING_RESOURCES.find((item) => item.id === activeDocument?.listeningResourceId) ?? resource;
+  const audioSource = audioUrl ?? (activeDocument && !activeDocument.listeningResourceId ? undefined : effectiveResource.audioUrl);
   const [selectedWord, setSelectedWord] = useState<PetWord | null>(null);
   const [speed, setSpeed] = useState<(typeof READING_SPEEDS)[number]>(1);
   const [processing, setProcessing] = useState(false);
@@ -627,6 +519,13 @@ function ReadingView({ username, onOpenWord }: { username: string; onOpenWord: (
   const [dictationResult, setDictationResult] = useState<"correct" | "incorrect" | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const lastAudioTimeRef = useRef(-1);
+  const importSequence = useRef(0);
+
+  useEffect(() => () => { importSequence.current++; }, []);
+
+  useEffect(() => {
+    localStorage.setItem(`pet-listening-resource-v1-${username}`, resourceId);
+  }, [resourceId, username]);
 
   useEffect(() => () => {
     if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -635,17 +534,81 @@ function ReadingView({ username, onOpenWord }: { username: string; onOpenWord: (
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.playbackRate = speed;
-  }, [audioUrl, speed]);
+  }, [audioSource, speed, mode]);
 
-  useEffect(() => {
-    setActiveDocument(null);
+  function changeMode(nextMode: ReadingMode): void {
+    importSequence.current++;
+    setProcessing(false);
+    setImportError("");
+    setMode(nextMode);
+    setActiveDocument(nextMode === "listening" ? documents.find((item) => item.listeningResourceId === resourceId) ?? null : null);
+    if (nextMode === "listening") { setAudioUrl(null); setAudioName(""); setAudioError(""); }
     setSelectedWord(null);
     setActiveSentenceIndex(null);
     setDictationIndex(null);
     setDictationAnswer("");
     setDictationResult(null);
-    if (mode === "reading") audioRef.current?.pause();
-  }, [mode]);
+    audioRef.current?.pause();
+    window.speechSynthesis?.cancel();
+  }
+
+  function chooseResource(next: ListeningResource): void {
+    importSequence.current++;
+    setProcessing(false);
+    setImportError("");
+    setAudioError("");
+    audioRef.current?.pause();
+    setResourceId(next.id);
+    setAudioUrl(null);
+    setAudioName("");
+    setActiveDocument(documents.find((item) => item.listeningResourceId === next.id) ?? null);
+    setCurrentAudioTime(0);
+    setActiveSentenceIndex(null);
+  }
+
+  function openSavedDocument(document: ReadingDocument): void {
+    importSequence.current++;
+    setProcessing(false);
+    setImportError("");
+    if (document.mode === "listening") {
+      const paired = LISTENING_RESOURCES.find((item) => item.id === document.listeningResourceId);
+      if (paired) chooseResource(paired);
+      else { setAudioUrl(null); setAudioName(""); setAudioError(""); }
+    }
+    setActiveDocument(document);
+  }
+
+  async function importOfficialResource(): Promise<void> {
+    if (processing) return;
+    const sequence = ++importSequence.current;
+    const selectedResource = resource;
+    setProcessing(true);
+    setImportError("");
+    try {
+      const response = await fetch(listeningPdfUrl(selectedResource), { signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) throw new Error("原文下载失败，请稍后重试，或从官网保存 PDF 后手动导入。");
+      const blob = await response.blob();
+      const file = new File([blob], selectedResource.pdfFile, { type: "application/pdf" });
+      const parsed = await parseReadingFile(file, "listening");
+      if (sequence !== importSequence.current) return;
+      const document = { ...parsed, id: `official-${selectedResource.id}`, title: selectedResource.title, listeningResourceId: selectedResource.id };
+      setDocuments(saveReadingDocument(username, document));
+      setActiveDocument(document);
+      setAudioUrl(null);
+      setAudioName("");
+      setAudioError("");
+      const url = URL.createObjectURL(blob);
+      const link = window.document.createElement("a");
+      link.href = url;
+      link.download = selectedResource.pdfFile;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch (error) {
+      if (sequence === importSequence.current) setImportError(error instanceof Error ? error.message : "原文导入失败，请重试。");
+    } finally {
+      if (sequence === importSequence.current) setProcessing(false);
+    }
+  }
 
   useEffect(() => {
     if (mode === "listening" && activeDocument) {
@@ -661,22 +624,33 @@ function ReadingView({ username, onOpenWord }: { username: string; onOpenWord: (
 
   async function importDocument(file: File | undefined): Promise<void> {
     if (!file) return;
+    const sequence = ++importSequence.current;
     setProcessing(true);
     setImportError("");
     try {
-      const document = await parseReadingFile(file, mode);
+      const parsed = await parseReadingFile(file, mode);
+      if (sequence !== importSequence.current) return;
+      const paired = mode === "listening" ? resourceForFile(file.name) : undefined;
+      const document = paired ? { ...parsed, id: `official-${paired.id}`, title: paired.title, listeningResourceId: paired.id } : parsed;
       setDocuments(saveReadingDocument(username, document));
       setActiveDocument(document);
+      if (mode === "listening") {
+        if (paired) setResourceId(paired.id);
+        setAudioUrl(null);
+        setAudioName("");
+        setAudioError("");
+      }
     } catch (error) {
-      setImportError(error instanceof Error ? error.message : "文件读取失败");
+      if (sequence === importSequence.current) setImportError(error instanceof Error ? error.message : "文件读取失败");
     } finally {
-      setProcessing(false);
+      if (sequence === importSequence.current) setProcessing(false);
     }
   }
 
   function importAudio(file: File | undefined): void {
     if (!file) return;
-    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    setAudioError("");
+    setActiveSentenceIndex(null);
     setAudioName(file.name);
     setAudioUrl(URL.createObjectURL(file));
   }
@@ -758,8 +732,8 @@ function ReadingView({ username, onOpenWord }: { username: string; onOpenWord: (
   return (
     <section className="pet-page">
       <div className="pet-reading-modes" role="tablist" aria-label="精读类型">
-        <button type="button" role="tab" aria-selected={mode === "reading"} className={mode === "reading" ? "is-active" : ""} onClick={() => setMode("reading")}><BookOpen aria-hidden="true" /><span><strong>阅读精读</strong><small>文章 · 生词 · 逐句理解</small></span></button>
-        <button type="button" role="tab" aria-selected={mode === "listening"} className={mode === "listening" ? "is-active" : ""} onClick={() => setMode("listening")}><Headphones aria-hidden="true" /><span><strong>听力精读</strong><small>原版音频 · 原文 · 倍速</small></span></button>
+        <button type="button" role="tab" aria-selected={mode === "reading"} className={mode === "reading" ? "is-active" : ""} onClick={() => changeMode("reading")}><BookOpen aria-hidden="true" /><span><strong>阅读精读</strong><small>文章 · 生词 · 逐句理解</small></span></button>
+        <button type="button" role="tab" aria-selected={mode === "listening"} className={mode === "listening" ? "is-active" : ""} onClick={() => changeMode("listening")}><Headphones aria-hidden="true" /><span><strong>听力精读</strong><small>原版音频 · 原文 · 倍速</small></span></button>
       </div>
       <PageHeading
         eyebrow={isListening ? "PET 原版听力精练" : "PET 难度阅读精练"}
@@ -770,10 +744,12 @@ function ReadingView({ username, onOpenWord }: { username: string; onOpenWord: (
       {isListening ? (
         <section className="pet-official-resource" aria-label="Cambridge 官方听力资料">
           <div className="pet-official-resource__meta"><span>官网当前公开版本</span><strong>2026-09 已核对</strong></div>
-          <div className="pet-official-resource__heading"><div><small>Cambridge English</small><h2>B1 Preliminary for Schools · Listening Sample Test 1</h2><p>音频直接来自 Cambridge 官网，不复制进应用。听力原文可从官网下载后导入，便于逐句精读。</p></div><ShieldCheck aria-hidden="true" /></div>
+          <label className="pet-listening-select">选择听力资料<select value={resourceId} onChange={(event) => chooseResource(LISTENING_RESOURCES.find((item) => item.id === event.target.value)!)}>{LISTENING_RESOURCES.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+          <div className="pet-official-resource__heading"><div><small>Cambridge English</small><h2>{resource.title}</h2><p>点击下方按钮即可保存 PDF 并自动导入原文，同时加载这套资料的官方音频。音频加载后请点击播放。</p></div><ShieldCheck aria-hidden="true" /></div>
           <div className="pet-official-resource__links">
             <a href={CAMBRIDGE_LISTENING_PAGE} target="_blank" rel="noreferrer">官方备考页<ExternalLink aria-hidden="true" /></a>
-            <a href={CAMBRIDGE_LISTENING_TRANSCRIPT} target="_blank" rel="noreferrer">下载听力原文 PDF<Download aria-hidden="true" /></a>
+            <button type="button" disabled={processing} onClick={() => void importOfficialResource()}>{processing ? "正在导入…" : "下载并导入原文 PDF"}<Download aria-hidden="true" /></button>
+            <a href={resource.sourcePdfUrl} target="_blank" rel="noreferrer">官网 PDF 备用链接<ExternalLink aria-hidden="true" /></a>
           </div>
         </section>
       ) : null}
@@ -791,7 +767,7 @@ function ReadingView({ username, onOpenWord }: { username: string; onOpenWord: (
           <div className="pet-saved-readings__list">
             {documentsForMode.map((document) => (
               <div className={activeDocument?.id === document.id ? "is-active" : ""} key={document.id}>
-                <button type="button" onClick={() => setActiveDocument(document)} aria-label={`打开已保存文档 ${document.title}`}><strong>{document.title}</strong><small>{document.sourceType.toUpperCase()}</small></button>
+                <button type="button" onClick={() => openSavedDocument(document)} aria-label={`打开已保存文档 ${document.title}`}><strong>{document.title}</strong><small>{document.sourceType.toUpperCase()}</small></button>
                 <button type="button" onClick={() => deleteDocument(document.id)} aria-label={`删除 ${document.title}`}><Trash2 aria-hidden="true" /></button>
               </div>
             ))}
@@ -804,7 +780,7 @@ function ReadingView({ username, onOpenWord }: { username: string; onOpenWord: (
         {READING_SPEEDS.map((option) => <button type="button" aria-pressed={speed === option} className={speed === option ? "is-active" : ""} key={option} onClick={() => setSpeed(option)}>{option}x</button>)}
       </div>
 
-      {isListening ? <div className="pet-audio pet-audio--official"><Headphones aria-hidden="true" /><div><strong>{audioName || "Cambridge 官方样题听力音频"}</strong><small>{audioUrl ? "本地导入 · 仅本次会话" : "在线播放 · 来源 Cambridge English 官网"}</small><audio ref={audioRef} controls preload="metadata" src={audioUrl ?? CAMBRIDGE_LISTENING_AUDIO} onTimeUpdate={handleAudioTimeUpdate}>浏览器不支持音频播放。</audio></div></div> : null}
+      {isListening ? <div className="pet-audio pet-audio--official"><Headphones aria-hidden="true" /><div><strong>{audioName || (audioSource ? `${effectiveResource.title} · 官方音频` : "请导入与这份原文对应的音频")}</strong><small>{audioUrl ? "本地导入 · 仅本次会话" : audioSource ? "已关联官方原版音频 · 联网后点击播放" : "自选资料无法仅凭 PDF 自动识别对应录音"}</small>{audioSource ? <audio key={audioSource} ref={audioRef} controls preload="metadata" src={audioSource} onLoadedMetadata={() => { if (audioRef.current) audioRef.current.playbackRate = speed; setAudioError(""); }} onError={() => setAudioError("官方音频暂时无法加载，请检查网络，或导入对应的本地音频。")} onTimeUpdate={handleAudioTimeUpdate}>浏览器不支持音频播放。</audio> : null}{audioError ? <p className="pet-inline-error">{audioError}</p> : null}</div></div> : null}
 
       {isListening && activeDocument ? (
         <section className="pet-segment-workbench" aria-label="原版音频单句配置">
@@ -857,8 +833,8 @@ function ReadingView({ username, onOpenWord }: { username: string; onOpenWord: (
       </article> : (
         <section className="pet-transcript-empty">
           <FileText aria-hidden="true" />
-          <div><h2>导入原文后开始逐句精听</h2><p>先播放上方官方音频做一遍盲听，再下载官方听力原文 PDF 并导入。系统会自动拆分句子、标出生词，并保存在当前账号。</p></div>
-          <a href={CAMBRIDGE_LISTENING_TRANSCRIPT} target="_blank" rel="noreferrer">下载官方原文<Download aria-hidden="true" /></a>
+          <div><h2>导入原文后开始逐句精听</h2><p>先在上方选择一套资料，再点击“下载并导入原文 PDF”。原文会自动拆分句子并保存，官方音频也会同步切换。</p></div>
+          <button type="button" disabled={processing} onClick={() => void importOfficialResource()}>导入所选官方原文<Download aria-hidden="true" /></button>
         </section>
       )}
       {selectedWord ? (
@@ -890,8 +866,8 @@ function ReadingSentence({ sentence, index, speed, onSelectWord, listening = fal
   );
 }
 
-function WrongView({ ratings, onOpenWord }: { ratings: Record<number, Rating>; onOpenWord: (word: PetWord) => void }): JSX.Element {
-  const words = PET_WORDS.filter((word) => ratings[word.id] === "again" || ratings[word.id] === "learning");
+function WrongView({ wordPool, ratings, onOpenWord }: { wordPool: PetWord[]; ratings: Record<number, Rating>; onOpenWord: (word: PetWord) => void }): JSX.Element {
+  const words = wordPool.filter((word) => ratings[word.id] === "again" || ratings[word.id] === "learning");
   return (
     <section className="pet-page">
       <PageHeading eyebrow={`${words.length} 个待巩固词`} title="错词本" description="不认识和有点熟的词会自动来到这里。" />
@@ -935,7 +911,7 @@ function ProfileView({ user, progress, onRestore, onLogout }: { user: PetUser; p
       try {
         const next = JSON.parse(String(reader.result)) as PetProgress;
         if (!next.ratings || !Array.isArray(next.reviews)) throw new Error("invalid");
-        onRestore({ ...EMPTY_PROGRESS, ...next });
+        onRestore({ ...EMPTY_PROGRESS, ...next, savedWords: readSavedWords(next.savedWords), vocabulary: next.vocabulary ?? {}, schedule: readSchedule(next.schedule, studyPool(readSavedWords(next.savedWords))) });
       } catch {
         window.alert("备份文件无法识别，请选择本应用导出的 JSON 文件。");
       }

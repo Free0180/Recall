@@ -1,0 +1,3 @@
+[functions.pet-daily-article]
+# The function verifies the session with Supabase Auth before calling the AI provider.
+verify_jwt = false

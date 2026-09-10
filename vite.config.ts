@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => {
         injectRegister: null,
         includeAssets: ["favicon.svg", "icons/icon-192.png", "icons/icon-512.png"],
         workbox: {
-          globPatterns: ["**/*.{js,css,html,json,svg,png,woff,woff2}"],
+          globPatterns: ["**/*.{js,mjs,css,html,json,pdf,svg,png,woff,woff2}"],
           // Don't cache KaTeX CSS from CDN - let browser handle it
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           navigateFallbackDenylist: [/^\/api/],
