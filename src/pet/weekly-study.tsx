@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { BookOpen, Check, Headphones, LoaderCircle, LockKeyhole, Volume2 } from "lucide-react";
 import { type PetWord } from "./pet-words";
 import { WordStudyCard } from "./word-study-card";
-import { speak } from "./pet-speech";
+import { speak, stopSpeech } from "./pet-speech";
 import { generateOfflineArticle, OFFLINE_ARTICLE_VERSION } from "./offline-article";
 import { ArticlePlayback } from "./article-playback";
 import { addDays, currentStudyDay, dictationCount, normaliseSpelling, studiedCount, updateStudyDay, wordsComplete, type Rating, type StudyDay, type StudySchedule } from "./study-cycle";
@@ -124,7 +124,7 @@ function DailyDictation({ day, words, onAnswer }: { day: StudyDay; words: PetWor
   const [feedback, setFeedback] = useState<"correct" | "incorrect" | null>(null);
   const word = words[index];
   const finished = dictationCount(day) === words.length;
-  useEffect(() => () => { window.speechSynthesis?.cancel(); }, []);
+  useEffect(() => () => { stopSpeech(); }, []);
   if (finished) return <div className="pet-dictation-finished"><Check aria-hidden="true" /><strong>今日听写已完成</strong><p>{words.length} 个单词都已拼写正确，明天继续！</p></div>;
   return <form className="pet-word-dictation" onSubmit={(event) => {
     event.preventDefault();
@@ -134,7 +134,6 @@ function DailyDictation({ day, words, onAnswer }: { day: StudyDay; words: PetWor
   }}>
     <p>第 {index + 1} / {words.length} 词 · 听发音，写出英文单词</p>
     <button type="button" className="pet-dictation-play" onClick={() => speak(word.word)} aria-label="播放听写单词"><Volume2 aria-hidden="true" />播放单词</button>
-    {!("speechSynthesis" in window) ? <p role="alert">当前设备不支持语音播放，请在支持英语语音的浏览器或设备上听写。</p> : null}
     <label>英文拼写<input autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={answer} onChange={(event) => { setAnswer(event.target.value); setFeedback(null); }} placeholder="听完后输入，不区分大小写" /></label>
     <div className="pet-dictation-buttons"><button type="submit" disabled={!answer.trim() || feedback === "correct"}>检查拼写</button>
       {feedback === "correct" ? <button type="button" onClick={() => { setIndex(words.findIndex((item) => !day.dictation[item.id]?.correct)); setAnswer(""); setFeedback(null); }}>下一词</button> : null}</div>

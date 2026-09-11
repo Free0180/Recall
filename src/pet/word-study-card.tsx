@@ -2,7 +2,7 @@ import { BookOpen, Check, ChevronLeft, ChevronRight, Play, RotateCcw, Sparkles, 
 import { useEffect, useRef, useState } from "react";
 import { PET_STUDY_WORDS, type PetWord } from "./pet-words";
 import type { Rating } from "./study-cycle";
-import { getBritishVoice, speak } from "./pet-speech";
+import { speak, stopSpeech } from "./pet-speech";
 
 interface WordStudyCardProps {
   word: PetWord;
@@ -21,7 +21,8 @@ export function WordStudyCard({ word, index, total, onMove, onRate }: WordStudyC
   useEffect(() => {
     playbackSequence.current += 1;
     setActiveSyllable(null);
-    window.speechSynthesis?.cancel();
+    stopSpeech();
+    return () => { playbackSequence.current++; stopSpeech(); };
   }, [word.id]);
 
   useEffect(() => {
@@ -39,11 +40,9 @@ export function WordStudyCard({ word, index, total, onMove, onRate }: WordStudyC
   }, [index, onMove, onRate]);
 
   function playSyllables(): void {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
+    stopSpeech();
     const sequence = playbackSequence.current + 1;
     playbackSequence.current = sequence;
-    const voice = getBritishVoice();
 
     function playPart(partIndex: number): void {
       if (playbackSequence.current !== sequence || partIndex >= word.syllables.length) {
@@ -51,13 +50,11 @@ export function WordStudyCard({ word, index, total, onMove, onRate }: WordStudyC
         return;
       }
       setActiveSyllable(partIndex);
-      const utterance = new SpeechSynthesisUtterance(word.syllables[partIndex]);
-      utterance.lang = "en-GB";
-      utterance.rate = 0.62;
-      if (voice) utterance.voice = voice;
-      utterance.onend = () => playPart(partIndex + 1);
-      utterance.onerror = () => setActiveSyllable(null);
-      window.speechSynthesis.speak(utterance);
+      speak(word.syllables[partIndex], 0.62, {
+        onEnd: () => playPart(partIndex + 1),
+        onError: () => setActiveSyllable(null),
+        onCancel: () => { playbackSequence.current++; setActiveSyllable(null); },
+      });
     }
 
     playPart(0);
@@ -78,12 +75,13 @@ export function WordStudyCard({ word, index, total, onMove, onRate }: WordStudyC
             <h1 id="active-word">{word.word}</h1>
             <p>{word.ipa}</p>
           </div>
-          <button className="pet-speak-button" type="button" onClick={() => speak(word.word)} aria-label={`播放 ${word.word} 的英式发音`}>
+          <button className="pet-speak-button" type="button" onClick={() => speak(word.word)} aria-label={`播放 ${word.word} 的英语发音`}>
             <Volume2 aria-hidden="true" />
           </button>
         </div>
 
         <p className="pet-meaning"><strong>{word.partOfSpeech}</strong> {word.meaning}</p>
+        <button type="button" className="pet-compatible-audio" onClick={() => speak(word.word, 0.82, { preferAudio: true })}>兼容音频（美式）</button>
 
         <div className="pet-phonics">
           <div className="pet-phonics__heading">

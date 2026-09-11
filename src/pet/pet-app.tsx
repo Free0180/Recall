@@ -42,7 +42,8 @@ import {
 import { loadB1Words, type B1Word } from "@/pet/pet-lexicons";
 import { loadReadingDocuments, parseReadingFile, removeReadingDocument, saveReadingDocument, splitIntoSentences, type ReadingDocument, type ReadingMode } from "@/pet/reading-documents";
 import "@/pet/pet-app.css";
-import { speak } from "./pet-speech";
+import { SpeechFeedback } from "./speech-feedback";
+import { speak, stopSpeech } from "./pet-speech";
 import { WeeklyStudy } from "./weekly-study";
 import { LISTENING_RESOURCES, listeningPdfUrl, loadListeningResourceId, resourceForFile, type ListeningResource } from "./listening-resources";
 import { currentStudyDay, ensureSchedule, localDateKey, readSchedule, studiedCount, updateStudyDay, type Rating, type StudySchedule, type VocabularyChoices, type VocabularyStatus } from "./study-cycle";
@@ -307,7 +308,7 @@ export function PetApp(): JSX.Element {
   }
 
   function handleLogout(): void {
-    window.speechSynthesis?.cancel();
+    stopSpeech();
     void clearPetSession().finally(() => setCurrentUser(null));
   }
 
@@ -334,6 +335,7 @@ export function PetApp(): JSX.Element {
       </header>
 
       <main className="pet-main">
+        <SpeechFeedback />
         {tab === "study" && (
           <WeeklyStudy
             wordPool={wordPool}
@@ -545,7 +547,7 @@ function ReadingView({ username, onOpenWord }: { username: string; onOpenWord: (
 
   useEffect(() => () => {
     if (audioUrl) URL.revokeObjectURL(audioUrl);
-    window.speechSynthesis?.cancel();
+    stopSpeech();
   }, [audioUrl]);
 
   useEffect(() => {
@@ -565,7 +567,7 @@ function ReadingView({ username, onOpenWord }: { username: string; onOpenWord: (
     setDictationAnswer("");
     setDictationResult(null);
     audioRef.current?.pause();
-    window.speechSynthesis?.cancel();
+    stopSpeech();
   }
 
   function chooseResource(next: ListeningResource): void {
