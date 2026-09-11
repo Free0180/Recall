@@ -42,6 +42,11 @@ const supabase: SupabaseClient | null = supabaseUrl && supabasePublishableKey
     })
   : null;
 
+// Reuse Auth's session; never create a second client or accept a caller-supplied user ID.
+export function petCloudClient(): SupabaseClient | null {
+  return TEST_AUTH_ENABLED ? null : supabase;
+}
+
 function normalizeUsername(username: string): string {
   return username.trim().toUpperCase();
 }

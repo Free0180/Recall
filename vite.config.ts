@@ -23,6 +23,11 @@ export default defineConfig(({ mode }) => {
           skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
+          runtimeCaching: [{
+            urlPattern: /\/audio\/en-us-[a-f0-9]+\.wav$/,
+            handler: "CacheFirst",
+            options: { cacheName: "pet-audio-v1", rangeRequests: true, cacheableResponse: { statuses: [200] } },
+          }],
         },
         manifest: {
           name: "PET词汇精读",

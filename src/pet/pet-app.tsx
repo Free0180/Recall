@@ -43,7 +43,12 @@ import { loadB1Words, type B1Word } from "@/pet/pet-lexicons";
 import { loadReadingDocuments, parseReadingFile, removeReadingDocument, saveReadingDocument, splitIntoSentences, type ReadingDocument, type ReadingMode } from "@/pet/reading-documents";
 import "@/pet/pet-app.css";
 import { SpeechFeedback } from "./speech-feedback";
-import { speak, stopSpeech } from "./pet-speech";
+import { setSpeechPreferences, speak, stopSpeech } from "./pet-speech";
+import { SpeechSettingsPanel } from "./speech-settings";
+import { DEFAULT_SPEECH, readSpeechSettings, type SpeechSettings } from "./speech-preferences";
+import { CloudSync, type SyncStatus } from "./cloud-sync";
+import { createCloudTransport } from "./cloud-transport";
+import { CloudSyncPanel } from "./cloud-sync-panel";
 import { WeeklyStudy } from "./weekly-study";
 import { LISTENING_RESOURCES, listeningPdfUrl, loadListeningResourceId, resourceForFile, type ListeningResource } from "./listening-resources";
 import { currentStudyDay, ensureSchedule, localDateKey, readSchedule, studiedCount, updateStudyDay, type Rating, type StudySchedule, type VocabularyChoices, type VocabularyStatus } from "./study-cycle";
@@ -58,6 +63,7 @@ interface ReviewRecord {
 }
 
 interface PetProgress {
+  speech: SpeechSettings;
   vocabulary: VocabularyChoices;
   appliedVocabulary: VocabularyChoices;
   savedWords: PetWord[];
@@ -80,6 +86,7 @@ const PET_WORD_MAP = new Map(PET_WORDS.map((word) => [word.word.toLowerCase(), w
 const CAMBRIDGE_LISTENING_PAGE = "https://www.cambridgeenglish.org/exams-and-tests/qualifications/preliminary/preparation/?skill=grammar,listening";
 
 const EMPTY_PROGRESS: PetProgress = {
+  speech: DEFAULT_SPEECH,
   vocabulary: {},
   appliedVocabulary: {},
   savedWords: [],
@@ -115,6 +122,7 @@ function loadProgress(username: string): PetProgress {
     if (!raw) return EMPTY_PROGRESS;
     const parsed = JSON.parse(raw) as Partial<PetProgress>;
     return {
+      speech: readSpeechSettings(parsed.speech),
       savedWords: readSavedWords(parsed.savedWords),
       appliedVocabulary: parsed.appliedVocabulary ?? parsed.vocabulary ?? Object.fromEntries(Object.entries(parsed.ratings ?? {}).map(([id, rating]) => [id, rating === "known" ? "known" : "unknown"])),
       vocabulary: parsed.vocabulary ?? Object.fromEntries(Object.entries(parsed.ratings ?? {}).map(([id, rating]) => [id, rating === "known" ? "known" : "unknown"])),
@@ -176,6 +184,8 @@ export function PetApp(): JSX.Element {
   const progressOwnerRef = useRef<string | null>(null);
   const [today, setToday] = useState(localDateKey);
   const [practiceWord, setPracticeWord] = useState<PetWord | null>(null);
+  const syncRef = useRef<CloudSync | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("local");
   const currentUsername = currentUser?.username ?? null;
   const wordPool = useMemo(() => studyPool(progress.savedWords), [progress.savedWords]);
   const schedule = useMemo(() => ensureSchedule(progress.schedule, progress.ratings, today, progress.appliedVocabulary, wordPool), [progress.schedule, progress.ratings, progress.appliedVocabulary, today, wordPool]);
@@ -216,12 +226,51 @@ export function PetApp(): JSX.Element {
     progressOwnerRef.current = currentUsername;
     setPracticeWord(null);
     setTab("study");
+    stopSpeech();
+    setSyncStatus("local");
+    if (!currentUsername) return;
+    const transport = createCloudTransport(currentUsername);
+    if (!transport) return;
+    let sync: CloudSync;
+    try {
+      sync = new CloudSync(`pet-cloud-v1-${currentUsername}`, JSON.stringify(loadProgress(currentUsername)),
+        payload => {
+          const item = JSON.parse(payload) as PetProgress;
+          return !Object.keys(item.ratings).length && !item.reviews.length && !Object.keys(item.vocabulary).length && !item.savedWords.length
+            && (!item.schedule || (item.schedule.dailyTarget === 10 && item.schedule.cycles.every(cycle => cycle.days.every(day => !day.wordIds.length && !day.article && !Object.keys(day.dictation).length))))
+            && JSON.stringify(item.speech) === JSON.stringify(DEFAULT_SPEECH);
+        }, localStorage, transport,
+        payload => {
+          const item = JSON.parse(payload) as PetProgress;
+          if (!item || !item.ratings || !Array.isArray(item.reviews)) throw new Error("Invalid cloud data");
+          localStorage.setItem(progressStorageKey(currentUsername), payload);
+          setProgress(loadProgress(currentUsername));
+        }, setSyncStatus);
+      syncRef.current = sync;
+    } catch { setSyncStatus("error"); return; }
+    const refresh = (): void => { void sync.sync(); };
+    const timer = window.setTimeout(refresh, 1500);
+    const poll = window.setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
+    window.addEventListener("online", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(poll);
+      window.removeEventListener("online", refresh);
+      window.removeEventListener("focus", refresh);
+      sync.dispose();
+      syncRef.current = null;
+    };
   }, [currentUsername]);
+
+  useEffect(() => { setSpeechPreferences(progress.speech); }, [progress.speech]);
 
   useEffect(() => {
     if (currentUsername && progressOwner === currentUsername) {
       try {
-        localStorage.setItem(progressStorageKey(currentUsername), JSON.stringify({ ...progress, schedule }));
+        const payload = JSON.stringify({ ...progress, schedule });
+        syncRef.current?.stage(payload);
+        localStorage.setItem(progressStorageKey(currentUsername), payload);
       } catch {
         setNotice("保存失败：设备存储空间不足，请在离开前导出备份");
       }
@@ -352,7 +401,7 @@ export function PetApp(): JSX.Element {
         {tab === "library" && <LibraryView ratings={progress.ratings} vocabulary={progress.vocabulary} onAdd={addVocabularyToStudy} unknownCount={wordPool.filter(word => progress.vocabulary[word.id] === "unknown").length} onMark={markVocabulary} onOpenWord={openWord} />}
         {tab === "reading" && <ReadingView username={currentUser.username} onOpenWord={openWord} />}
         {tab === "wrong" && <WrongView wordPool={wordPool} ratings={progress.ratings} onOpenWord={openWord} />}
-        {tab === "profile" && <ProfileView user={currentUser} progress={progress} onRestore={setProgress} onLogout={handleLogout} />}
+        {tab === "profile" && <div className="pet-page"><CloudSyncPanel username={currentUser.username} status={syncStatus} onSync={() => void syncRef.current?.sync()} onResolve={choice => void syncRef.current?.resolve(choice)} /><ProfileView user={currentUser} progress={progress} onRestore={setProgress} onLogout={handleLogout} /><SpeechSettingsPanel value={progress.speech} onChange={speech => setProgress(previous => ({ ...previous, speech }))} /></div>}
       </main>
 
       <nav className="pet-bottom-nav" aria-label="主要导航">
@@ -929,7 +978,7 @@ function ProfileView({ user, progress, onRestore, onLogout }: { user: PetUser; p
       try {
         const next = JSON.parse(String(reader.result)) as PetProgress;
         if (!next.ratings || !Array.isArray(next.reviews)) throw new Error("invalid");
-        onRestore({ ...EMPTY_PROGRESS, ...next, savedWords: readSavedWords(next.savedWords), vocabulary: next.vocabulary ?? {}, appliedVocabulary: next.appliedVocabulary ?? next.vocabulary ?? {}, schedule: readSchedule(next.schedule, studyPool(readSavedWords(next.savedWords))) });
+        onRestore({ ...EMPTY_PROGRESS, ...next, speech: readSpeechSettings(next.speech), savedWords: readSavedWords(next.savedWords), vocabulary: next.vocabulary ?? {}, appliedVocabulary: next.appliedVocabulary ?? next.vocabulary ?? {}, schedule: readSchedule(next.schedule, studyPool(readSavedWords(next.savedWords))) });
       } catch {
         window.alert("备份文件无法识别，请选择本应用导出的 JSON 文件。");
       }
@@ -974,8 +1023,8 @@ function ProfileView({ user, progress, onRestore, onLogout }: { user: PetUser; p
         <div><strong>{progress.streak}</strong><span>连续学习天数</span></div>
       </div>
       <section className="pet-profile-section">
-        <div className="pet-panel-title"><span><ShieldCheck aria-hidden="true" /></span><div><h2>安全登录与隐私</h2><p>Supabase 只负责账号验证，学习记录仍保存在当前设备。</p></div></div>
-        <p>安装到手机或平板桌面后，可以像普通 App 一样打开。不同设备上的学习进度目前不会自动同步。</p>
+        <div className="pet-panel-title"><span><ShieldCheck aria-hidden="true" /></span><div><h2>安全登录与隐私</h2><p>Supabase 负责账号验证。数据库配置完成后，学习进度与语音设置会自动同步。</p></div></div>
+        <p>离线时继续保存在本机，联网后重试同步。同步状态以上方提示为准。</p>
       </section>
       <section className="pet-profile-section">
         <h2>修改登录密码</h2>

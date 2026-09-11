@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { getBritishVoice, speak, SPEECH_FEEDBACK_EVENT, stopSpeech } from "./pet-speech";
+import { getBritishVoice, normalizeSpeechText, setSpeechPreferences, speak, SPEECH_FEEDBACK_EVENT, stopSpeech } from "./pet-speech";
 
 let voices: SpeechSynthesisVoice[];
 let spoken: SpeechSynthesisUtterance[];
@@ -8,6 +8,7 @@ const voice = (lang: string, localService = true): SpeechSynthesisVoice => ({ la
 
 beforeEach(() => {
   vi.useFakeTimers();
+  setSpeechPreferences({ voiceURI: "", mode: "auto" });
   voices = [];
   spoken = [];
   engine = Object.assign(new EventTarget(), {
@@ -19,15 +20,31 @@ beforeEach(() => {
 });
 afterEach(() => { stopSpeech(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
-it("prefers local British then other local English, and sets the actual language", () => {
+it("prefers British English and sets the actual language", () => {
   voices = [voice("zh-CN"), voice("en-US"), voice("en-GB", false)];
-  expect(getBritishVoice()).toBe(voices[1]);
+  expect(getBritishVoice()).toBe(voices[2]);
   speak("ability");
-  expect(spoken[0].lang).toBe("en-US");
-  expect(spoken[0].voice).toBe(voices[1]);
+  expect(spoken[0].lang).toBe("en-GB");
+  expect(spoken[0].voice).toBe(voices[2]);
   expect(spoken[0].volume).toBe(1);
   voices.push(voice("en_GB"));
   expect(getBritishVoice()).toBe(voices[3]);
+});
+
+it("honors a saved voice and falls back when it is absent on another device", () => {
+  voices = [{ ...voice("en-US"), voiceURI: "us" }, { ...voice("en-GB"), voiceURI: "uk" }];
+  setSpeechPreferences({ voiceURI: "us", mode: "system" });
+  expect(getBritishVoice()).toBe(voices[0]);
+  setSpeechPreferences({ voiceURI: "missing", mode: "system" });
+  expect(getBritishVoice()).toBe(voices[1]);
+});
+
+it("cleans PDF wrapping and avoids canceling between finished sentences", () => {
+  expect(normalizeSpeechText("An inter-\nnational  club.\n Next\t sentence.")).toBe("An international club. Next sentence.");
+  speak("First sentence.");
+  spoken[0].onend?.({} as SpeechSynthesisEvent);
+  speak("Second sentence.");
+  expect((engine as unknown as { cancel: ReturnType<typeof vi.fn> }).cancel).not.toHaveBeenCalled();
 });
 
 it("starts synchronously for iOS and retries once when late voices become available", () => {
