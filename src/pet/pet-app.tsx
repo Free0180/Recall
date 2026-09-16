@@ -182,8 +182,9 @@ function createDictationPrompt(sentence: string): string {
 export function PetApp(): JSX.Element {
   const [currentUser, setCurrentUser] = useState<PetUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
-  const [tab, setTab] = useState<Tab>("study");
-  const [prepPanel, setPrepPanel] = useState<"plan" | "composition">("plan");
+  const [tab, setTab] = useState<Tab>("preparation");
+  const [dailyReturn, setDailyReturn] = useState(false);
+  const [prepPanel, setPrepPanel] = useState<"today" | "plan" | "composition">("today");
   const [progress, setProgress] = useState<PetProgress>(EMPTY_PROGRESS);
   const [notice, setNotice] = useState<string | null>(null);
   const [progressOwner, setProgressOwner] = useState<string | null>(null);
@@ -231,7 +232,9 @@ export function PetApp(): JSX.Element {
     setProgressOwner(currentUsername);
     progressOwnerRef.current = currentUsername;
     setPracticeWord(null);
-    setTab("study");
+    setTab("preparation");
+    setPrepPanel("today");
+    setDailyReturn(false);
     stopSpeech();
     setSyncStatus("local");
     if (!currentUsername) return;
@@ -391,6 +394,7 @@ export function PetApp(): JSX.Element {
 
       <main className="pet-main">
         <SpeechFeedback />
+        {dailyReturn && tab !== "preparation" && <div className="pet-writing pet-writing-notice"><button onClick={() => { setPrepPanel("today"); setTab("preparation"); }}>返回今日任务</button><p>完成并提交后返回清单核对；仅打开页面不算完成。</p></div>}
         {tab === "study" && (
           <WeeklyStudy
             wordPool={wordPool}
@@ -407,7 +411,7 @@ export function PetApp(): JSX.Element {
         {tab === "library" && <LibraryView ratings={progress.ratings} vocabulary={progress.vocabulary} onAdd={addVocabularyToStudy} unknownCount={wordPool.filter(word => progress.vocabulary[word.id] === "unknown").length} onMark={markVocabulary} onOpenWord={openWord} />}
         {tab === "reading" && <ReadingView username={currentUser.username} onOpenWord={openWord} />}
         {tab === "writing" && <WritingView key={currentUser.username} username={currentUser.username} onOpenLessons={() => { setPrepPanel("composition"); setTab("preparation"); }} />}
-        {tab === "preparation" && <Suspense fallback={<p role="status">正在打开备考内容…</p>}><PreparationView key={currentUser.username} username={currentUser.username} initialPanel={prepPanel} onNavigate={next => { setPrepPanel("plan"); setTab(next); }} /></Suspense>}
+        {tab === "preparation" && <Suspense fallback={<p role="status">正在打开备考内容…</p>}><PreparationView key={currentUser.username} username={currentUser.username} initialPanel={prepPanel} today={today} words={schedule.cycles.flatMap(cycle => cycle.days.map((day,index) => { const d = new Date(cycle.startDate + "T12:00:00"); d.setDate(d.getDate()+index); return { date:localDateKey(d), complete:day.wordIds.length>0 && day.wordIds.every(id=>!!day.ratings[id] && !!day.dictation[id]), text:JSON.stringify(day.wordIds.map(id=>({ word:wordPool.find(w=>w.id===id)?.word ?? String(id), meaning:wordPool.find(w=>w.id===id)?.meaning ?? "", rating:day.ratings[id] ?? "未提交", dictation:day.dictation[id] ?? "未提交" })),null,2) }; }))} onDailyNavigate={next => { setDailyReturn(true); setTab(next); }} onNavigate={next => { setDailyReturn(true); setPrepPanel("today"); setTab(next); }} /></Suspense>}
         {tab === "wrong" && <WrongView wordPool={wordPool} ratings={progress.ratings} onOpenWord={openWord} />}
         {tab === "profile" && <div className="pet-page"><CloudSyncPanel username={currentUser.username} status={syncStatus} onSync={() => void syncRef.current?.sync()} onResolve={choice => void syncRef.current?.resolve(choice)} /><ProfileView user={currentUser} progress={progress} onRestore={setProgress} onLogout={handleLogout} /><SpeechSettingsPanel value={progress.speech} onChange={speech => setProgress(previous => ({ ...previous, speech }))} /></div>}
       </main>

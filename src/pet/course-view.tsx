@@ -3,14 +3,15 @@ import { blankLesson, LESSONS, lessonMaterials, type Lesson, type LessonWork } f
 
 interface Props {
   kind: Lesson["kind"];
+  initialLesson?: string;
   work: Record<string, LessonWork>;
   onSave: (id: string, work: LessonWork) => boolean;
   onWriting: () => void;
 }
 
-export function CourseView({ kind, work, onSave, onWriting }: Props) {
+export function CourseView({ kind, work, onSave, onWriting, initialLesson }: Props) {
   const lessons = LESSONS.filter(lesson => lesson.kind === kind);
-  const [selected, setSelected] = useState(lessons[0].id);
+  const [selected, setSelected] = useState(initialLesson || lessons[0].id);
   const lesson = lessons.find(item => item.id === selected) ?? lessons[0];
   return <section aria-label={kind === "grammar" ? "语法小课" : "写作表达小课"}>
     <h2>{kind === "grammar" ? "语法小课：从理解到运用" : "写作表达：句子、段落到整篇"}</h2>

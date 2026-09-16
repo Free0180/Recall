@@ -11,6 +11,7 @@ for(const width of [1440,430]) {
     await page.getByRole("button",{name:"备考",exact:true}).click();
     await expect(page).toHaveTitle(/PET/);
     await expect(page.getByRole("heading",{name:"备考中心"})).toBeVisible();
+    await page.getByRole("button",{name:"诊断与计划 时间安排"}).click();
     await page.getByLabel("本周薄弱项与调整").fill("本周练习条件句和听力数字。");
     await page.getByRole("heading",{name:"备考中心"}).scrollIntoViewIfNeeded();
     await page.screenshot({path:path.join(tmpdir(),`pet-preparation-${width}.png`)});
@@ -42,6 +43,7 @@ for(const width of [1440,430]) {
     await expect(page.locator(".pet-prep-report")).toContainText("累计首次作答 2/3 题");
     const download=page.waitForEvent("download"); await page.getByRole("button",{name:"导出备考备份",exact:true}).click(); const file=await download;
     await page.reload(); await page.getByRole("button",{name:"备考",exact:true}).click();
+    await page.getByRole("button",{name:"诊断与计划 时间安排"}).click();
     await expect(page.getByLabel("本周薄弱项与调整")).toHaveValue("本周练习条件句和听力数字。");
     await page.getByRole("button",{name:"家长复盘 学习报告"}).click();
     page.once("dialog",d=>d.accept()); await page.getByLabel("恢复备考备份").setInputFiles((await file.path())!);
@@ -50,7 +52,7 @@ for(const width of [1440,430]) {
     await expect(page.locator("vite-error-overlay")).toHaveCount(0);
     await page.getByRole("button",{name:"我的",exact:true}).click(); await page.getByRole("button",{name:"退出登录"}).click();
     await page.getByLabel("用户名").fill("RUN2"); await page.locator("#pet-password").fill("e2e-test-only-password"); await page.getByRole("button",{name:"登录",exact:true}).click();
-    await page.getByRole("button",{name:"备考",exact:true}).click(); await expect(page.getByLabel("本周薄弱项与调整")).not.toHaveValue("本周练习条件句和听力数字。");
+    await page.getByRole("button",{name:"备考",exact:true}).click(); await page.getByRole("button",{name:"诊断与计划 时间安排 · 逐科摸底"}).click(); await expect(page.getByLabel("本周薄弱项与调整")).not.toHaveValue("本周练习条件句和听力数字。");
     await page.getByRole("button",{name:"家长复盘 学习报告"}).click(); await page.getByLabel("恢复备考备份").setInputFiles((await file.path())!);
     await expect(page.getByRole("status")).toContainText("不属于当前账号");
     expect(errors).toEqual([]);

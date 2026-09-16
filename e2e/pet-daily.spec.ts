@@ -1,0 +1,37 @@
+import { expect,test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+for(const width of [1440,430])test(`daily task routing and external feedback round trip (${width})`,async({page})=>{
+  await page.setViewportSize({width,height:932});const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
+  await page.goto("/");await page.evaluate(()=>localStorage.setItem("pet-vocab-e2e-session","RUN1"));await page.reload();
+  await expect(page.getByRole("heading",{name:"今日备考任务",exact:true})).toBeVisible();
+  await page.getByText("阶段与时间设置（家长调整）",{exact:true}).click();
+  await page.getByLabel("阶段安排").selectOption("sprint");await page.getByRole("button",{name:"按新设置重新安排今日任务"}).click();
+  await expect(page.getByText(/计划 60 分钟/)).toBeVisible();
+  await page.getByLabel("阶段安排").selectOption("foundation");await page.getByRole("button",{name:"按新设置重新安排今日任务"}).click();
+  await page.getByRole("button",{name:"开始任务 1",exact:true}).click();
+  await expect(page.getByRole("button",{name:"返回今日任务",exact:true})).toBeVisible();await page.getByRole("button",{name:"返回今日任务",exact:true}).click();
+  await expect(page.getByLabel("手动确认完成 1",{exact:true})).not.toBeChecked();
+  await page.getByRole("combobox",{name:"替换任务 2",exact:true}).selectOption("grammar");await page.getByRole("combobox",{name:"指定内容 2",exact:true}).selectOption("c-be");
+  await page.getByRole("button",{name:"开始任务 2",exact:true}).click();
+  await page.getByRole("radio",{name:"are",exact:true}).check();await page.getByRole("radio",{name:"your",exact:true}).check();
+  await page.getByRole("button",{name:"提交配套练习并看解析"}).click();
+  await page.getByLabel("我的句子练习").fill("The library is near my house.");await page.getByLabel("本课独立原稿").fill("The park is near my house. Bring your ball.");await page.getByRole("button",{name:"提交本课原稿并保留"}).click();
+  await page.getByRole("button",{name:"返回今日任务",exact:true}).click();await expect(page.getByLabel("手动确认完成 2",{exact:true})).toBeChecked();
+  await page.getByLabel("学习记录 1",{exact:true}).fill("复习了五个短语，用时十五分钟；没有提交听写。");await page.getByLabel("手动确认完成 1",{exact:true}).check();
+  await page.getByLabel("暂缓这项任务 4",{exact:true}).check();
+  const dl=page.waitForEvent("download");await page.getByRole("button",{name:"导出当天学习材料",exact:true}).click();const packet=await dl;
+  const material=await readFile((await packet.path())!,"utf8");const template=JSON.parse(material.slice(material.lastIndexOf('{\n  "kind"')));
+  expect(material).toContain("Bring your ball");expect(material).toContain("手动确认");
+  await page.getByLabel("粘贴外部点评 JSON").fill(JSON.stringify({...template,username:"RUN2"}));await page.getByRole("button",{name:"校验并预览点评"}).click();await expect(page.getByRole("alert")).toContainText("不匹配");
+  const feedback={...template,summary:"基础句子完整，请继续练习理由。",tasks:template.tasks.map((t:{taskId:string})=>({...t,feedback:"本项材料已查看。",nextPractice:"补一个具体例子。"}))};
+  await page.getByLabel("粘贴外部点评 JSON").fill(JSON.stringify(feedback));await page.getByRole("button",{name:"校验并预览点评"}).click();await page.getByRole("button",{name:"确认导入点评"}).click();
+  await page.reload();await expect(page.getByText("基础句子完整，请继续练习理由。",{exact:true})).toBeVisible();
+  await page.getByRole("heading",{name:"今日备考任务",exact:true}).scrollIntoViewIfNeeded();await page.screenshot({path:path.join(tmpdir(),`pet-daily-${width}.png`)});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem("pet-preparation-v1-RUN1")!));expect(saved.lessons["c-be"].original).toBe("The park is near my house. Bring your ball.");
+  await page.getByRole("button",{name:"我的",exact:true}).click();await page.getByRole("button",{name:"退出登录"}).click();await page.getByLabel("用户名").fill("RUN2");await page.locator("#pet-password").fill("e2e-test-only-password");await page.getByRole("button",{name:"登录",exact:true}).click();
+  await expect(page.getByText("基础句子完整，请继续练习理由。",{exact:true})).toHaveCount(0);expect(errors).toEqual([]);
+});
