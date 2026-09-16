@@ -29,7 +29,7 @@ async function photoFromFile(file: File): Promise<WritingPhoto> {
   } finally { URL.revokeObjectURL(url); }
 }
 
-export function WritingView({ username }: { username: string }): JSX.Element {
+export function WritingView({ username, onOpenLessons }: { username: string; onOpenLessons?: () => void }): JSX.Element {
   const [attempts, setAttempts] = useState<WritingAttempt[]>([]);
   const current = useRef<WritingAttempt[]>([]);
   const [selected, setSelected] = useState("");
@@ -118,6 +118,7 @@ export function WritingView({ username }: { username: string }): JSX.Element {
   }
   return <section className="pet-page pet-writing">
     <div className="pet-page-heading"><span>练习 · 手工点评 · 修改</span><h1>写作练习</h1><p>先独立完成，再带着反馈修改。所有题目为原创练习，不是官方试题。</p></div>
+    {onOpenLessons && <div className="pet-writing-notice"><p>还不知道怎样写？先学习句型、例句和段落组织，再完成整篇任务。</p><button onClick={onOpenLessons}>先学写作表达课</button></div>}
     <section className="pet-profile-section">
       <h2>我的写作本</h2><p>作文、照片和点评按账号保存在当前设备，暂不云同步。发到聊天后才能获得点评；本页不会自动评分。</p>
       <p role="status">{saved}</p>

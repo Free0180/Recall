@@ -1,23 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { correctAnswer, dateKey, DIMENSIONS, EXERCISES, firstResults, freshPrep, markExercise, PHRASES, readPrepBackup, reportText, SPEAKING_TASKS, unresolvedQuestions, validPrep, weekDays, type Exercise, type ManualRecord, type PrepState, type Result, type Skill } from "./preparation-data";
 import { speak, stopSpeech } from "./pet-speech";
+import { CourseView } from "./course-view";
 import "./writing.css";
 import "./preparation.css";
 
-type Panel = "plan" | "vocab" | "grammar" | "reading" | "listening" | "speaking" | "mistakes" | "mock" | "parent";
-const PANELS: Array<[Panel, string, string]> = [["plan", "诊断与计划", "时间安排 · 逐科摸底"], ["vocab", "词汇与短语", "主题搭配 · 四项能力"], ["grammar", "语法与句子", "讲解 · 练习 · 运用"], ["reading", "阅读训练", "六类题型 · 答案依据"], ["listening", "听力训练", "四类题型 · 精听复盘"], ["speaking", "口语训练", "四个环节 · 手工点评"], ["mistakes", "全科错题", "错因 · 重做 · 复查"], ["mock", "模拟与记录", "合法材料 · 人工记录"], ["parent", "家长复盘", "学习报告 · 材料 · 备份"]];
+type Panel = "plan" | "vocab" | "grammar" | "composition" | "reading" | "listening" | "speaking" | "mistakes" | "mock" | "parent";
+const PANELS: Array<[Panel, string, string]> = [["plan", "诊断与计划", "时间安排 · 逐科摸底"], ["vocab", "词汇与短语", "主题搭配 · 四项能力"], ["grammar", "语法与句子", "讲解 · 练习 · 运用"], ["composition", "写作表达课", "句型 · 段落 · 手工点评"], ["reading", "阅读训练", "六类题型 · 答案依据"], ["listening", "听力训练", "四类题型 · 精听复盘"], ["speaking", "口语训练", "四个环节 · 手工点评"], ["mistakes", "全科错题", "错因 · 重做 · 复查"], ["mock", "模拟与记录", "合法材料 · 人工记录"], ["parent", "家长复盘", "学习报告 · 材料 · 备份"]];
 const SKILL_NAMES: Record<Skill, string> = { grammar: "语法", reading: "阅读", listening: "听力" };
 const CAUSES = ["待分析", "词汇或搭配", "语法", "漏看限制条件", "同义替换", "被干扰信息影响", "听不清连读", "数字日期或拼写", "时间不足"];
 type Update = (change: (state: PrepState) => PrepState) => boolean;
 function downloadPrep(name: string, text: string, type = "text/plain;charset=utf-8"): void { const url = URL.createObjectURL(new Blob([text], { type })); const a = document.createElement("a"); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 10000); }
 
-export function PreparationView({ username, onNavigate }: { username: string; onNavigate: (tab: "writing" | "library" | "reading") => void }) {
+export function PreparationView({ username, onNavigate, initialPanel = "plan" }: { username: string; onNavigate: (tab: "writing" | "library" | "reading") => void; initialPanel?: "plan" | "composition" }) {
   const key = `pet-preparation-v1-${username}`;
   const [loaded] = useState(() => { try { const raw = localStorage.getItem(key); const data: unknown = raw ? JSON.parse(raw) : freshPrep(); if (!validPrep(data)) throw new Error("本机备考记录格式异常，请导出原始记录并保留备份后处理。"); return { raw, data, error: "" }; } catch (error) { return { raw: null, data: freshPrep(), error: String(error) }; } });
   const baseline = useRef(loaded.raw);
   const [state, setState] = useState(loaded.data);
   const [message, setMessage] = useState(loaded.error);
-  const [panel, setPanel] = useState<Panel>("plan");
+  const [panel, setPanel] = useState<Panel>(initialPanel);
   const [selected, setSelected] = useState("");
   const update: Update = change => {
     try {
@@ -37,6 +38,8 @@ export function PreparationView({ username, onNavigate }: { username: string; on
     <p role="status" className="pet-prep-status">{message}</p>
     {panel === "plan" && <Plan state={state} update={update} go={go} onWriting={() => onNavigate("writing")} />}
     {panel === "vocab" && <Vocabulary state={state} update={update} onLibrary={() => onNavigate("library")} />}
+    {(panel === "grammar" || panel === "composition") && <CourseView key={panel} kind={panel === "grammar" ? "grammar" : "writing"} work={state.lessons ?? {}} onSave={(id, work) => update(s => ({ ...s, lessons: { ...s.lessons, [id]: work } }))} onWriting={() => onNavigate("writing")} />}
+    {panel === "parent" && <p>课程进度：{Object.values(state.lessons ?? {}).filter(w => w.submitted).length} 课已提交，{Object.values(state.lessons ?? {}).filter(w => w.reviewed).length} 课已手工复查。课程答案、原稿、点评和修改稿包含在备考 JSON 备份中；单课点评材料在课程页导出。</p>}
     {(["grammar", "reading", "listening"] as string[]).includes(panel) && <section><h2>{SKILL_NAMES[panel as Skill]}训练</h2><p>以下均为原创入门练习，覆盖题型思路，数量和难度不足以作为完整真题或水平定级。</p>{panel === "reading" && <button onClick={() => onNavigate("reading")}>打开精读与材料导入</button>}{panel === "listening" && <><p>合成语音用于基础听辨，不能替代真人语速、口音与多人交流训练。</p><button onClick={() => onNavigate("reading")}>打开官方听力材料与精听</button></>}
       <div className="pet-writing-actions">{EXERCISES.filter(e => e.skill === panel).map(e => <button key={e.id} aria-pressed={selected === e.id} onClick={() => setSelected(e.id)}>{e.title}</button>)}</div>
       {EXERCISES.filter(e => e.id === selected && e.skill === panel).map(e => <Quiz key={e.id} exercise={e} onSave={result => update(s => ({ ...s, results: [...s.results, result] }))} />)}
@@ -44,7 +47,7 @@ export function PreparationView({ username, onNavigate }: { username: string; on
     {panel === "speaking" && <Speaking state={state} update={update} username={username} />}
     {panel === "mistakes" && <Mistakes state={state} update={update} go={go} />}
     {panel === "mock" && <section><h2>模拟与记录</h2><p>先使用官方免费样题或已购买的正版材料。本站小练习不拼成“完整模考”，也不推算通过率。</p><p>记录材料名称、日期、是否首次使用、各部分实际用时、阅读/听力答对数与总题数，以及写作/口语的人工点评。题目做过要标明，避免把记住答案当作能力提升。</p><a href="https://www.cambridgeenglish.org/exams-and-tests/qualifications/preliminary/preparation/" target="_blank" rel="noreferrer">Cambridge 官方备考材料</a><ManualForm kind="mock" title="新增模考记录" update={update} placeholder="材料：\n是否首次使用：\n阅读：答对数 / 总题数，用时\n听力：答对数 / 总题数，用时\n写作：完成情况、待改进点\n口语：搭档、录音文件名、待改进点\n下周调整：" /><Records records={state.records.filter(r => r.kind === "mock")} update={update} /></section>}
-    {panel === "parent" && <section><h2>家长复盘与材料</h2><p>每周花 10 分钟看首次作答、重复错误和完成情况。先问孩子卡在哪里，再决定下周重点；不以单次正确率贴水平标签。</p><label>现有合法材料与家长待办<textarea maxLength={5000} value={state.resources} onChange={e => update(s => ({ ...s, resources: e.target.value }))} /></label><ul><li>KET 成绩出来后记录分项成绩；具体考试日期确认后补填。</li><li>提供教材名称、可使用范围和近期学校语法内容；未购买时先用官方免费资源与原创题。</li><li>写作保留独立原稿、实际用时和帮助情况；口语保留原始录音。</li><li>把题目、原稿/录音和导出的材料发到当前对话，收到点评后手动粘贴回对应记录。</li></ul><pre className="pet-prep-report">{reportText(username, state)}</pre><div className="pet-writing-actions"><button onClick={() => downloadPrep(`PET-review-${dateKey()}.txt`, reportText(username, state))}>导出复盘与点评材料</button><button onClick={backup}>导出备考备份</button></div><label>恢复备考备份（替换当前备考记录）<input type="file" accept=".json,application/json" onChange={async e => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; try { if (file.size > 4_000_000) throw new Error("备份超过大小限制。"); const data = readPrepBackup(await file.text(), username); if (!window.confirm("恢复将替换当前备考记录。建议先导出当前备份。继续吗？")) return; update(() => data); } catch (error) { setMessage(error instanceof Error ? error.message : "恢复失败"); } }} /></label><p>备份包含计划、短语标记、客观题记录和手工点评；不含写作照片、录音或精读材料，请分别保存。</p>{loaded.error && <button onClick={() => { try { downloadPrep("PET-preparation-recovery.txt", localStorage.getItem(key) ?? ""); } catch { setMessage("无法访问浏览器存储，请保留此页面。"); } }}>导出原始记录</button>}</section>}
+    {panel === "parent" && <section><h2>家长复盘与材料</h2><p>每周花 10 分钟看首次作答、重复错误和完成情况。先问孩子卡在哪里，再决定下周重点；不以单次正确率贴水平标签。</p><label>现有合法材料与家长待办<textarea maxLength={5000} value={state.resources} onChange={e => update(s => ({ ...s, resources: e.target.value }))} /></label><ul><li>KET 成绩出来后记录分项成绩；具体考试日期确认后补填。</li><li>提供教材名称、可使用范围和近期学校语法内容；未购买时先用官方免费资源与原创题。</li><li>写作保留独立原稿、实际用时和帮助情况；口语保留原始录音。</li><li>把题目、原稿/录音和导出的材料发到当前对话，收到点评后手动粘贴回对应记录。</li></ul><pre className="pet-prep-report">{reportText(username, state)}</pre><div className="pet-writing-actions"><button onClick={() => downloadPrep(`PET-review-${dateKey()}.txt`, reportText(username, state))}>导出复盘与点评材料</button><button onClick={backup}>导出备考备份</button></div><label>恢复备考备份（替换当前备考记录）<input type="file" accept=".json,application/json" onChange={async e => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; try { if (file.size > 4_000_000) throw new Error("备份超过大小限制。"); const data = readPrepBackup(await file.text(), username); if (!window.confirm("恢复将替换当前备考记录。建议先导出当前备份。继续吗？")) return; update(() => data); } catch (error) { setMessage(error instanceof Error ? error.message : "恢复失败"); } }} /></label><p>备份包含计划、短语标记、客观题记录、课程原稿与修改稿和手工点评；不含写作照片、录音或精读材料，请分别保存。</p>{loaded.error && <button onClick={() => { try { downloadPrep("PET-preparation-recovery.txt", localStorage.getItem(key) ?? ""); } catch { setMessage("无法访问浏览器存储，请保留此页面。"); } }}>导出原始记录</button>}</section>}
   </div>;
 }
 

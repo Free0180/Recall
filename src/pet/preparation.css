@@ -13,5 +13,7 @@
 .pet-prep-explanation { border-top: 1px solid #ccdceb; margin-top: 14px; padding-top: 14px; color: #264d61; }
 .pet-prep-status { color: #805000; min-height: 24px; }
 .pet-prep audio { width: 100%; max-width: 500px; }
+.pet-course ol { list-style: decimal; padding-left: 24px; }
+.pet-course li { margin: 12px 0; }
 .pet-prep input[type=radio], .pet-prep input[type=checkbox] { min-width: 18px; min-height: 18px; }
 @media (max-width: 600px) { .pet-prep section { padding: 16px; } .pet-prep-menu { grid-template-columns: repeat(2,minmax(0,1fr)); } .pet-prep-week { grid-template-columns: 1fr; } }

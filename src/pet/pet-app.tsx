@@ -183,6 +183,7 @@ export function PetApp(): JSX.Element {
   const [currentUser, setCurrentUser] = useState<PetUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [tab, setTab] = useState<Tab>("study");
+  const [prepPanel, setPrepPanel] = useState<"plan" | "composition">("plan");
   const [progress, setProgress] = useState<PetProgress>(EMPTY_PROGRESS);
   const [notice, setNotice] = useState<string | null>(null);
   const [progressOwner, setProgressOwner] = useState<string | null>(null);
@@ -405,8 +406,8 @@ export function PetApp(): JSX.Element {
         )}
         {tab === "library" && <LibraryView ratings={progress.ratings} vocabulary={progress.vocabulary} onAdd={addVocabularyToStudy} unknownCount={wordPool.filter(word => progress.vocabulary[word.id] === "unknown").length} onMark={markVocabulary} onOpenWord={openWord} />}
         {tab === "reading" && <ReadingView username={currentUser.username} onOpenWord={openWord} />}
-        {tab === "writing" && <WritingView key={currentUser.username} username={currentUser.username} />}
-        {tab === "preparation" && <Suspense fallback={<p role="status">正在打开备考内容…</p>}><PreparationView key={currentUser.username} username={currentUser.username} onNavigate={setTab} /></Suspense>}
+        {tab === "writing" && <WritingView key={currentUser.username} username={currentUser.username} onOpenLessons={() => { setPrepPanel("composition"); setTab("preparation"); }} />}
+        {tab === "preparation" && <Suspense fallback={<p role="status">正在打开备考内容…</p>}><PreparationView key={currentUser.username} username={currentUser.username} initialPanel={prepPanel} onNavigate={next => { setPrepPanel("plan"); setTab(next); }} /></Suspense>}
         {tab === "wrong" && <WrongView wordPool={wordPool} ratings={progress.ratings} onOpenWord={openWord} />}
         {tab === "profile" && <div className="pet-page"><CloudSyncPanel username={currentUser.username} status={syncStatus} onSync={() => void syncRef.current?.sync()} onResolve={choice => void syncRef.current?.resolve(choice)} /><ProfileView user={currentUser} progress={progress} onRestore={setProgress} onLogout={handleLogout} /><SpeechSettingsPanel value={progress.speech} onChange={speech => setProgress(previous => ({ ...previous, speech }))} /></div>}
       </main>

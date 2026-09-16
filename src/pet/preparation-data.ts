@@ -1,3 +1,4 @@
+import { validLessons, type LessonWork } from "./course-data";
 export type Skill = "grammar" | "reading" | "listening";
 export interface Question { id: string; prompt: string; choices?: string[]; answer: string; evidence: string; explanation: string }
 export interface Exercise { id: string; skill: Skill; title: string; minutes: number; instruction: string; text: string; questions: Question[]; apply?: string }
@@ -89,7 +90,7 @@ export const SPEAKING_TASKS = [
 
 export interface Result { id: string; exerciseId: string; at: string; seconds: number; mode: "practice" | "check"; answers: Record<string, string>; correct: number; total: number; causes: Record<string, string> }
 export interface ManualRecord { id: string; kind: "speaking" | "mock" | "mistake"; at: string; title: string; text: string; feedback: string; resolved: boolean }
-export interface PrepState { examMonth: string; examDate: string; weekdayMinutes: number; weekendMinutes: number; ket: string; priority: string; resources: string; completed: Record<string, boolean>; results: Result[]; phraseChecks: Record<string, boolean>; records: ManualRecord[] }
+export interface PrepState { examMonth: string; examDate: string; weekdayMinutes: number; weekendMinutes: number; ket: string; priority: string; resources: string; completed: Record<string, boolean>; results: Result[]; phraseChecks: Record<string, boolean>; records: ManualRecord[]; lessons?: Record<string, LessonWork> }
 export function freshPrep(): PrepState { return { examMonth: "2027-03", examDate: "", weekdayMinutes: 60, weekendMinutes: 120, ket: "成绩待公布", priority: "先观察各科；写作重点检查 be、your、-ing 和时间地点。", resources: "尚未购买备考材料", completed: {}, results: [], phraseChecks: {}, records: [] }; }
 export function correctAnswer(answer: string, expected: string): boolean { return answer.trim().toLowerCase().replace(/’/g, "'") === expected.trim().toLowerCase(); }
 export function markExercise(exercise: Exercise, answers: Record<string, string>): number { return exercise.questions.filter(item => correctAnswer(answers[item.id] ?? "", item.answer)).length; }
@@ -110,7 +111,7 @@ export function validPrep(value: unknown): value is PrepState {
       if (!r || typeof r.id !== "string" || typeof r.at !== "string" || !Number.isFinite(Date.parse(r.at)) || !Number.isFinite(r.seconds) || r.seconds < 0 || !["practice", "check"].includes(r.mode) || !stringMap(r.answers, "string") || !stringMap(r.causes, "string")) return false;
       const exercise = EXERCISES.find(e => e.id === r.exerciseId); return !!exercise && r.total === exercise.questions.length && r.correct === markExercise(exercise, r.answers);
     }) && Array.isArray(s.records) && s.records.length <= 300 && s.records.every(r => r && typeof r.id === "string" && typeof r.at === "string" && Number.isFinite(Date.parse(r.at)) && ["speaking", "mock", "mistake"].includes(r.kind) && [r.title, r.text, r.feedback].every(t => typeof t === "string" && t.length <= 10000) && typeof r.resolved === "boolean")
-    && new Set(s.results.map(r => r.id)).size === s.results.length && new Set(s.records.map(r => r.id)).size === s.records.length;
+    && new Set(s.results.map(r => r.id)).size === s.results.length && new Set(s.records.map(r => r.id)).size === s.records.length && validLessons(s.lessons);
 }
 export function readPrepBackup(text: string, username: string): PrepState { if (text.length > 4_000_000) throw new Error("备份超过大小限制。"); const value = JSON.parse(text); if (value.kind !== "pet-preparation" || value.version !== 1 || value.username !== username || !validPrep(value.data)) throw new Error("备份格式不正确，或不属于当前账号。"); return value.data; }
 export function reportText(username: string, state: PrepState): string {
