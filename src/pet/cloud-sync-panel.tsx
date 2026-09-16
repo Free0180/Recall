@@ -21,7 +21,7 @@ export function CloudSyncPanel({ username, status, onSync, onResolve }: { userna
   }
   return <section className="pet-profile-section" aria-label="云同步">
     <h2>学习数据云同步</h2><p role="status">{messages[status]}</p>
-    <p>导入的精读原文、听力时间轴和音频仍保存在本机。</p>
+    <p>导入的精读原文、听力时间轴和音频仍保存在本机。写作原稿、照片及点评也仅在本机保存，请在写作页单独备份。</p>
     <div className="pet-profile-actions">
       <button type="button" disabled={status === "local" || status === "syncing" || status === "conflict"} onClick={onSync}>立即同步</button>
       {status === "conflict" ? <>

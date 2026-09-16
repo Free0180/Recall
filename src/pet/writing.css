@@ -1,0 +1,30 @@
+.pet-writing { color: var(--pet-ink, #123352); }
+.pet-writing h1 { margin: 8px 0; font-size: 28px; }
+.pet-writing label { display: grid; gap: 8px; margin-top: 16px; font-size: 14px; font-weight: 600; }
+.pet-writing input:not([type=checkbox]):not([type=radio]), .pet-writing select, .pet-writing textarea { width: 100%; min-width: 0; box-sizing: border-box; padding: 12px; border: 1px solid #cedeed; border-radius: 10px; background: #fff; color: #123352; font: inherit; }
+.pet-writing textarea { min-height: 100px; resize: vertical; line-height: 1.7; font-weight: 400; }
+.pet-writing .pet-writing-essay { min-height: 240px; }
+.pet-writing button, .pet-writing-file { border: 1px solid #aacdf2; border-radius: 10px; background: #f3f8ff; color: #095bb5; padding: 10px 14px; cursor: pointer; min-height: 44px; }
+.pet-writing button:disabled { opacity: .5; cursor: default; }
+.pet-writing button:focus-visible, .pet-writing input:focus-visible, .pet-writing textarea:focus-visible, .pet-writing select:focus-visible { outline: 3px solid #88b9ed; outline-offset: 2px; }
+.pet-writing .pet-writing-primary { background: #1479e8; color: white; margin-top: 20px; }
+.pet-writing-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 18px; }
+.pet-writing .pet-writing-actions label { margin-top: 0; }
+.pet-writing-file { width: fit-content; max-width: 100%; }
+.pet-writing-file input { max-width: 100%; font-size: 12px !important; padding: 4px !important; }
+.pet-writing-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: end; margin-top: 16px; }
+.pet-writing .pet-writing-check { display: flex; align-items: center; min-height: 44px; }
+.pet-writing-prompt { background: #f3f8ff; border-left: 3px solid #1479e8; padding: 16px; font-size: 17px !important; }
+.pet-writing-photos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.pet-writing-photos figure { margin: 16px 0; }
+.pet-writing-photos img { display: block; width: 100%; max-height: 480px; object-fit: contain; border: 1px solid #d4e3f0; border-radius: 8px; }
+.pet-writing-photos figcaption { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; }
+.pet-writing details { margin: 20px 0; }
+.pet-writing summary { cursor: pointer; }
+.pet-writing-original { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.pet-writing-comparison { align-items: start; }
+.pet-writing-notice { background: #fff7de; padding: 16px; border-radius: 12px; line-height: 1.6; }
+.pet-writing-practice { border: 1px solid #d4e3f0; border-radius: 10px; margin: 18px 0; padding: 14px; min-width: 0; }
+.pet-writing-practice legend { padding: 0 4px; max-width: 100%; }
+.pet-writing .pet-writing-practice label { display: flex; align-items: baseline; font-weight: 400; }
+@media (max-width: 600px) { .pet-writing-grid, .pet-writing-photos { grid-template-columns: 1fr; gap: 12px; } .pet-writing h1 { font-size: 24px; } }

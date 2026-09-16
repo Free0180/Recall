@@ -17,6 +17,7 @@ import {
   LoaderCircle,
   LogOut,
   Play,
+  PencilLine,
   Repeat2,
   Search,
   Settings2,
@@ -49,11 +50,12 @@ import { DEFAULT_SPEECH, readSpeechSettings, type SpeechSettings } from "./speec
 import { CloudSync, type SyncStatus } from "./cloud-sync";
 import { createCloudTransport } from "./cloud-transport";
 import { CloudSyncPanel } from "./cloud-sync-panel";
+import { WritingView } from "./writing-view";
 import { WeeklyStudy } from "./weekly-study";
 import { LISTENING_RESOURCES, listeningPdfUrl, loadListeningResourceId, resourceForFile, type ListeningResource } from "./listening-resources";
 import { currentStudyDay, ensureSchedule, localDateKey, readSchedule, studiedCount, updateStudyDay, type Rating, type StudySchedule, type VocabularyChoices, type VocabularyStatus } from "./study-cycle";
 
-type Tab = "study" | "library" | "reading" | "wrong" | "profile";
+type Tab = "study" | "library" | "reading" | "writing" | "wrong" | "profile";
 
 interface ReviewRecord {
   wordId: number;
@@ -102,6 +104,7 @@ const TABS: Array<{ id: Tab; label: string; icon: typeof Play }> = [
   { id: "study", label: "学习", icon: Play },
   { id: "library", label: "词库", icon: LibraryBig },
   { id: "reading", label: "精读", icon: BookOpen },
+  { id: "writing", label: "写作", icon: PencilLine },
   { id: "wrong", label: "错词", icon: BookMarked },
   { id: "profile", label: "我的", icon: CircleUserRound },
 ];
@@ -400,6 +403,7 @@ export function PetApp(): JSX.Element {
         )}
         {tab === "library" && <LibraryView ratings={progress.ratings} vocabulary={progress.vocabulary} onAdd={addVocabularyToStudy} unknownCount={wordPool.filter(word => progress.vocabulary[word.id] === "unknown").length} onMark={markVocabulary} onOpenWord={openWord} />}
         {tab === "reading" && <ReadingView username={currentUser.username} onOpenWord={openWord} />}
+        {tab === "writing" && <WritingView key={currentUser.username} username={currentUser.username} />}
         {tab === "wrong" && <WrongView wordPool={wordPool} ratings={progress.ratings} onOpenWord={openWord} />}
         {tab === "profile" && <div className="pet-page"><CloudSyncPanel username={currentUser.username} status={syncStatus} onSync={() => void syncRef.current?.sync()} onResolve={choice => void syncRef.current?.resolve(choice)} /><ProfileView user={currentUser} progress={progress} onRestore={setProgress} onLogout={handleLogout} /><SpeechSettingsPanel value={progress.speech} onChange={speech => setProgress(previous => ({ ...previous, speech }))} /></div>}
       </main>
@@ -1051,7 +1055,7 @@ function ProfileView({ user, progress, onRestore, onLogout }: { user: PetUser; p
       ) : null}
       <section className="pet-profile-section">
         <h2>备份与恢复</h2>
-        <p>清除浏览器数据前，建议先导出学习记录。</p>
+        <p>此处备份词汇与学习计划。写作原稿、照片和点评请在“写作”页单独导出备份；清除浏览器数据前请分别保存。</p>
         <div className="pet-profile-actions">
           <button type="button" onClick={exportProgress}><Download aria-hidden="true" />导出 JSON 备份</button>
           <button type="button" onClick={() => importRef.current?.click()}><Upload aria-hidden="true" />恢复备份</button>
