@@ -28,7 +28,7 @@ import {
   Volume2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { PET_CATEGORIES, PET_READING, PET_STUDY_WORDS, PET_WORDS, type PetWord } from "@/pet/pet-words";
 import {
   authenticatePetUser,
@@ -55,7 +55,8 @@ import { WeeklyStudy } from "./weekly-study";
 import { LISTENING_RESOURCES, listeningPdfUrl, loadListeningResourceId, resourceForFile, type ListeningResource } from "./listening-resources";
 import { currentStudyDay, ensureSchedule, localDateKey, readSchedule, studiedCount, updateStudyDay, type Rating, type StudySchedule, type VocabularyChoices, type VocabularyStatus } from "./study-cycle";
 
-type Tab = "study" | "library" | "reading" | "writing" | "wrong" | "profile";
+const PreparationView = lazy(() => import("./preparation-view").then(module => ({ default: module.PreparationView })));
+type Tab = "study" | "library" | "reading" | "writing" | "preparation" | "wrong" | "profile";
 
 interface ReviewRecord {
   wordId: number;
@@ -105,6 +106,7 @@ const TABS: Array<{ id: Tab; label: string; icon: typeof Play }> = [
   { id: "library", label: "词库", icon: LibraryBig },
   { id: "reading", label: "精读", icon: BookOpen },
   { id: "writing", label: "写作", icon: PencilLine },
+  { id: "preparation", label: "备考", icon: Gauge },
   { id: "wrong", label: "错词", icon: BookMarked },
   { id: "profile", label: "我的", icon: CircleUserRound },
 ];
@@ -404,6 +406,7 @@ export function PetApp(): JSX.Element {
         {tab === "library" && <LibraryView ratings={progress.ratings} vocabulary={progress.vocabulary} onAdd={addVocabularyToStudy} unknownCount={wordPool.filter(word => progress.vocabulary[word.id] === "unknown").length} onMark={markVocabulary} onOpenWord={openWord} />}
         {tab === "reading" && <ReadingView username={currentUser.username} onOpenWord={openWord} />}
         {tab === "writing" && <WritingView key={currentUser.username} username={currentUser.username} />}
+        {tab === "preparation" && <Suspense fallback={<p role="status">正在打开备考内容…</p>}><PreparationView key={currentUser.username} username={currentUser.username} onNavigate={setTab} /></Suspense>}
         {tab === "wrong" && <WrongView wordPool={wordPool} ratings={progress.ratings} onOpenWord={openWord} />}
         {tab === "profile" && <div className="pet-page"><CloudSyncPanel username={currentUser.username} status={syncStatus} onSync={() => void syncRef.current?.sync()} onResolve={choice => void syncRef.current?.resolve(choice)} /><ProfileView user={currentUser} progress={progress} onRestore={setProgress} onLogout={handleLogout} /><SpeechSettingsPanel value={progress.speech} onChange={speech => setProgress(previous => ({ ...previous, speech }))} /></div>}
       </main>
