@@ -1,4 +1,5 @@
 import { asStudyWord, readSavedWords, studyPool } from "./vocabulary";
+import { AddVocabularyButton } from "./add-vocabulary-button";
 import {
   BookMarked,
   BookOpen,
@@ -549,7 +550,7 @@ function LibraryView({ ratings, vocabulary, onAdd, unknownCount, onMark, onOpenW
       <div className="pet-vocabulary-filters" role="group" aria-label="单词掌握状态">
         {(["all", "known", "unknown"] as const).map(value => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === "all" ? "全部" : value === "known" ? "认识" : "不认识"}<strong>{value === "all" ? currentWords.length : currentWords.filter(word => vocabulary[word.id] === value).length}</strong></button>)}
       </div>
-      <div className="pet-add-vocabulary"><div><strong>待安排词库：{unknownCount} 个不认识的单词</strong><p>标记完成后点击“增加”，将两个词库中的不认识单词更新到学习计划。按每日名额分配，已完成的任务保留。</p></div><button type="button" onClick={onAdd}>增加</button></div>
+      <div className="pet-add-vocabulary"><div><strong>待安排词库：{unknownCount} 个不认识的单词</strong><p>标记完成后点击“增加”，将两个词库中的不认识单词更新到学习计划。按每日名额分配，已完成的任务保留。</p></div><AddVocabularyButton onAdd={onAdd} /></div>
       <div className="pet-library-summary"><strong>{lexicon === "curated" ? PET_WORDS.length : B1_WORD_COUNT}</strong><span>当前词库词量</span><small>{lexicon === "curated" ? "标记后进入每日计划" : "标记后进入每日计划"}</small></div>
       <label className="pet-search"><Search aria-hidden="true" /><span className="sr-only">搜索单词</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索英文或中文释义" /></label>
       {loading ? <div className="pet-loading"><LoaderCircle aria-hidden="true" />正在加载 2354 个词条…</div> : null}
